@@ -46,8 +46,10 @@ const OK = [
   'image/webp',
 ];
 
-export default function WorkerDashboard() {
+const MAX_FILES = 5;
+const MAX_SIZE = 5 * 1024 * 1024;
 
+export default function WorkerDashboard() {
   const toast = useToast();
 
   const {
@@ -65,92 +67,127 @@ export default function WorkerDashboard() {
     c: (await list<ExpenseCategory>(E.categories))
       .items
       .filter(c => c.isActive),
-
   }));
 
   const [v, setV] = useState({
     siteId: '',
     amount: '',
     category: '',
+    subcategory: '',
     description: '',
   });
 
-  const [file, setFile] = useState<File | null>(null);
-
-  const [preview, setPreview] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
 
   const [errs, setErrs] = useState<Record<string, string>>({});
-
   const [busy, setBusy] = useState(false);
-
   const [search, setSearch] = useState('');
 
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Receipt preview
+  const selectedCategory = data?.c.find(
+    c => c.name === v.category,
+  );
+
+  const subcategories = (selectedCategory?.subcategories ?? [])
+    .filter(s => s.isActive);
+
+  // Receipt previews
   useEffect(() => {
+    const urls = files.map(file => URL.createObjectURL(file));
 
-    if (!file) {
-      setPreview('');
+    setPreviews(urls);
+
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [files]);
+
+  // Select and validate multiple receipt images
+  const pick = (selectedFiles?: FileList | File[]) => {
+    if (!selectedFiles?.length) return;
+
+    const incoming = Array.from(selectedFiles);
+    const remaining = MAX_FILES - files.length;
+
+    if (remaining <= 0) {
+      setErrs(x => ({
+        ...x,
+        file: 'Maximum 5 receipt images are allowed',
+      }));
       return;
     }
 
-    const u = URL.createObjectURL(file);
+    if (incoming.length > remaining) {
+      setErrs(x => ({
+        ...x,
+        file: `You can upload only ${remaining} more image(s)`,
+      }));
+      return;
+    }
 
-    setPreview(u);
+    const validFiles: File[] = [];
 
-    return () => URL.revokeObjectURL(u);
+    for (const file of incoming) {
+      if (!OK.includes(file.type)) {
+        setErrs(x => ({
+          ...x,
+          file: 'Only JPG, PNG or WEBP images are allowed',
+        }));
+        continue;
+      }
 
-  }, [file]);
+      if (file.size > MAX_SIZE) {
+        setErrs(x => ({
+          ...x,
+          file: `${file.name} exceeds the 5 MB limit`,
+        }));
+        continue;
+      }
 
-  // File validation
-  const pick = (f?: File) => {
+      validFiles.push(file);
+    }
 
-    if (!f) return;
-
-    if (!OK.includes(f.type)) {
+    if (validFiles.length) {
+      setFiles(prev => [...prev, ...validFiles]);
 
       setErrs(x => ({
         ...x,
-        file: 'Only JPG, PNG or WEBP images are allowed',
+        file: '',
       }));
-
-      return;
     }
 
-    if (f.size > 5 * 1024 * 1024) {
-
-      setErrs(x => ({
-        ...x,
-        file: 'Image must be 5 MB or smaller',
-      }));
-
-      return;
+    if (fileRef.current) {
+      fileRef.current.value = '';
     }
+  };
+
+  // Remove individual receipt
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
 
     setErrs(x => ({
       ...x,
       file: '',
     }));
 
-    setFile(f);
-
+    if (fileRef.current) {
+      fileRef.current.value = '';
+    }
   };
 
-  // Clear receipt
+  // Clear all receipts
   const clear = () => {
-
-    setFile(null);
+    setFiles([]);
 
     if (fileRef.current) {
       fileRef.current.value = '';
     }
-
   };
 
   // Submit expense
   const submit = async (e: FormEvent) => {
-
     e.preventDefault();
 
     if (busy) return;
@@ -169,6 +206,10 @@ export default function WorkerDashboard() {
       er.category = 'Select a category';
     }
 
+    if (subcategories.length > 0 && !v.subcategory) {
+      er.subcategory = 'Select a subcategory';
+    }
+
     if (errs.file) {
       er.file = errs.file;
     }
@@ -182,16 +223,16 @@ export default function WorkerDashboard() {
     fd.append('siteId', v.siteId);
     fd.append('amount', v.amount);
     fd.append('category', v.category);
+    fd.append('subcategory', v.subcategory);
     fd.append('description', v.description.trim());
 
-    if (file) {
-      fd.append('receipt', file);
-    }
+    files.forEach(file => {
+      fd.append('receipts', file);
+    });
 
     setBusy(true);
 
     try {
-
       await http.post(E.expenses, fd);
 
       toast('Expense submitted for approval');
@@ -200,43 +241,37 @@ export default function WorkerDashboard() {
         siteId: '',
         amount: '',
         category: '',
+        subcategory: '',
         description: '',
       });
 
       clear();
 
+      setErrs({});
+
       reload();
-
     } catch (x) {
-
       toast(errMsg(x), 'err');
-
     } finally {
-
       setBusy(false);
-
     }
-
   };
 
   const sm = data?.x.summary ?? {};
-
   const expenses = data?.x.items ?? [];
 
   const filteredExpenses = expenses.filter(e => {
-
     const q = search.toLowerCase();
 
     return (
       e.siteName?.toLowerCase().includes(q) ||
       e.category.toLowerCase().includes(q) ||
+      e.subcategory?.toLowerCase().includes(q) ||
       e.status.toLowerCase().includes(q)
     );
-
   });
 
   const stats = [
-
     {
       title: 'Funds Received',
       value: inr(sm.totalAllocated),
@@ -245,7 +280,6 @@ export default function WorkerDashboard() {
       color: 'blue',
       iconBg: 'bg-blue-50 text-blue-600',
     },
-
     {
       title: 'Approved Expenses',
       value: inr(sm.approvedAmount),
@@ -254,7 +288,6 @@ export default function WorkerDashboard() {
       color: 'emerald',
       iconBg: 'bg-emerald-50 text-emerald-600',
     },
-
     {
       title: 'Available Balance',
       value: inr(sm.availableBalance),
@@ -263,7 +296,6 @@ export default function WorkerDashboard() {
       color: 'green',
       iconBg: 'bg-green-50 text-green-600',
     },
-
     {
       title: 'Pending Expenses',
       value: inr(sm.pendingAmount),
@@ -272,7 +304,6 @@ export default function WorkerDashboard() {
       color: 'amber',
       iconBg: 'bg-amber-50 text-amber-600',
     },
-
     {
       title: 'Rejected Expenses',
       value: inr(sm.rejectedAmount),
@@ -281,11 +312,9 @@ export default function WorkerDashboard() {
       color: 'red',
       iconBg: 'bg-red-50 text-red-600',
     },
-
   ];
 
   return (
-
     <div className="mx-auto max-w-[1500px] space-y-7 pb-10">
 
       {/* WELCOME HEADER */}
@@ -301,24 +330,17 @@ export default function WorkerDashboard() {
           <div>
 
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-300">
-
               <Sparkles size={15} />
-
               WORKER WORKSPACE
-
             </div>
 
             <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-
               My Dashboard<span className="text-blue-400">.</span>
-
             </h1>
 
             <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">
-
               Manage your construction expenses, track available funds
               and monitor your expense approvals in one place.
-
             </p>
 
           </div>
@@ -326,13 +348,10 @@ export default function WorkerDashboard() {
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
 
             <div className="rounded-xl bg-blue-500/20 p-3 text-blue-300">
-
               <Wallet size={25} />
-
             </div>
 
             <div>
-
               <p className="text-xs text-slate-400">
                 Available Balance
               </p>
@@ -340,7 +359,6 @@ export default function WorkerDashboard() {
               <p className="mt-1 text-2xl font-bold">
                 {inr(sm.availableBalance)}
               </p>
-
             </div>
 
           </div>
@@ -350,33 +368,23 @@ export default function WorkerDashboard() {
         <div className="relative mt-7 flex flex-wrap items-center gap-5 border-t border-white/10 pt-5 text-xs text-slate-400">
 
           <div className="flex items-center gap-2">
-
             <Building2 size={14} />
-
             {data?.s.length ?? 0} Active Sites
-
           </div>
 
           <div className="flex items-center gap-2">
-
             <Receipt size={14} />
-
             {expenses.length} Total Expenses
-
           </div>
 
           <div className="flex items-center gap-2">
-
             <CalendarDays size={14} />
-
             Expense Management
-
           </div>
 
         </div>
 
       </section>
-
 
       {/* STATISTICS */}
 
@@ -385,7 +393,6 @@ export default function WorkerDashboard() {
         <div className="mb-4 flex items-center justify-between">
 
           <div>
-
             <h2 className="text-lg font-bold text-slate-900">
               Financial Overview
             </h2>
@@ -393,18 +400,14 @@ export default function WorkerDashboard() {
             <p className="mt-1 text-sm text-slate-500">
               Your complete funds and expense summary.
             </p>
-
           </div>
 
           <button
             onClick={reload}
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
-
             <RefreshCw size={14} />
-
             Refresh
-
           </button>
 
         </div>
@@ -412,11 +415,9 @@ export default function WorkerDashboard() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
 
           {stats.map(item => {
-
             const Icon = item.icon;
 
             return (
-
               <div
                 key={item.title}
                 className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
@@ -425,7 +426,6 @@ export default function WorkerDashboard() {
                 <div className="flex items-start justify-between">
 
                   <div>
-
                     <p className="text-sm font-medium text-slate-500">
                       {item.title}
                     </p>
@@ -433,38 +433,29 @@ export default function WorkerDashboard() {
                     <h3 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">
                       {loading ? '—' : item.value}
                     </h3>
-
                   </div>
 
                   <div className={`rounded-xl p-3 ${item.iconBg}`}>
-
                     <Icon size={21} />
-
                   </div>
 
                 </div>
 
                 <p className="mt-4 text-xs text-slate-400">
-
                   {item.description}
-
                 </p>
 
               </div>
-
             );
-
           })}
 
         </div>
 
       </section>
 
-
       {/* MAIN CONTENT */}
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-
 
         {/* EXPENSE FORM */}
 
@@ -479,35 +470,26 @@ export default function WorkerDashboard() {
                 <div className="flex items-center gap-2">
 
                   <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
-
                     <Receipt size={19} />
-
                   </div>
 
                   <h2 className="text-lg font-bold text-slate-900">
-
                     Submit an Expense
-
                   </h2>
 
                 </div>
 
                 <p className="mt-2 text-sm text-slate-500">
-
                   Submit your bills and payment receipts for approval.
-
                 </p>
 
               </div>
 
               <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:block">
-
                 Expense Submission
-
               </span>
 
             </div>
-
 
             <form
               onSubmit={submit}
@@ -522,9 +504,7 @@ export default function WorkerDashboard() {
                 <div>
 
                   <label className="mb-2 block text-sm font-semibold text-slate-700">
-
                     Construction Site *
-
                   </label>
 
                   <div className="relative">
@@ -550,11 +530,9 @@ export default function WorkerDashboard() {
                       </option>
 
                       {data?.s.map(s => (
-
                         <option key={s.id} value={s.id}>
                           {s.name}
                         </option>
-
                       ))}
 
                     </select>
@@ -562,22 +540,17 @@ export default function WorkerDashboard() {
                   </div>
 
                   {errs.siteId && (
-
                     <p className="mt-1 text-xs text-red-500">
                       {errs.siteId}
                     </p>
-
                   )}
 
                 </div>
 
-
                 <div>
 
                   <label className="mb-2 block text-sm font-semibold text-slate-700">
-
                     Expense Amount *
-
                   </label>
 
                   <div className="relative">
@@ -603,17 +576,14 @@ export default function WorkerDashboard() {
                   </div>
 
                   {errs.amount && (
-
                     <p className="mt-1 text-xs text-red-500">
                       {errs.amount}
                     </p>
-
                   )}
 
                 </div>
 
               </div>
-
 
               {/* CATEGORY + DESCRIPTION */}
 
@@ -622,9 +592,7 @@ export default function WorkerDashboard() {
                 <div>
 
                   <label className="mb-2 block text-sm font-semibold text-slate-700">
-
                     Expense Category *
-
                   </label>
 
                   <select
@@ -634,6 +602,7 @@ export default function WorkerDashboard() {
                       setV({
                         ...v,
                         category: e.target.value,
+                        subcategory: '',
                       })
                     }
                   >
@@ -643,32 +612,25 @@ export default function WorkerDashboard() {
                     </option>
 
                     {data?.c.map(c => (
-
                       <option key={c.id} value={c.name}>
                         {c.name}
                       </option>
-
                     ))}
 
                   </select>
 
                   {errs.category && (
-
                     <p className="mt-1 text-xs text-red-500">
                       {errs.category}
                     </p>
-
                   )}
 
                 </div>
 
-
                 <div>
 
                   <label className="mb-2 block text-sm font-semibold text-slate-700">
-
                     Description
-
                   </label>
 
                   <input
@@ -687,119 +649,181 @@ export default function WorkerDashboard() {
 
               </div>
 
+              {/* SUBCATEGORY */}
 
-              {/* RECEIPT UPLOAD */}
+              {v.category && subcategories.length > 0 && (
+
+                <div>
+
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Expense Subcategory *
+                  </label>
+
+                  <select
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                    value={v.subcategory}
+                    onChange={e =>
+                      setV({
+                        ...v,
+                        subcategory: e.target.value,
+                      })
+                    }
+                  >
+
+                    <option value="">
+                      Select subcategory
+                    </option>
+
+                    {subcategories.map(sub => (
+                      <option key={sub.id} value={sub.name}>
+                        {sub.name}
+                      </option>
+                    ))}
+
+                  </select>
+
+                  {errs.subcategory && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {errs.subcategory}
+                    </p>
+                  )}
+
+                </div>
+
+              )}
+
+              {/* MULTIPLE RECEIPT UPLOAD */}
 
               <div>
 
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <div className="mb-2 flex items-center justify-between">
 
-                  Bill / Receipt Image
+                  <label className="block text-sm font-semibold text-slate-700">
+                    Bill / Receipt Images
+                  </label>
 
-                </label>
+                  <span className="text-xs text-slate-400">
+                    {files.length}/{MAX_FILES} uploaded
+                  </span>
+
+                </div>
 
                 <div
-                  onClick={() => fileRef.current?.click()}
+                  onClick={() => {
+                    if (files.length < MAX_FILES) {
+                      fileRef.current?.click();
+                    }
+                  }}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => {
                     e.preventDefault();
-                    pick(e.dataTransfer.files?.[0]);
+                    e.stopPropagation();
+                    pick(e.dataTransfer.files);
                   }}
-                  className="cursor-pointer rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-7 text-center transition hover:border-blue-400 hover:bg-blue-50/40"
+                  className={`rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-7 text-center transition hover:border-blue-400 hover:bg-blue-50/40 ${
+                    files.length >= MAX_FILES
+                      ? 'cursor-not-allowed opacity-60'
+                      : 'cursor-pointer'
+                  }`}
                 >
 
                   <input
                     ref={fileRef}
                     type="file"
                     hidden
+                    multiple
                     accept="image/jpeg,image/png,image/webp"
-                    onChange={e => pick(e.target.files?.[0])}
+                    onChange={e => pick(e.target.files ?? undefined)}
                   />
 
-                  {preview ? (
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <UploadCloud size={27} />
+                  </div>
 
-                    <div className="flex flex-col items-center">
+                  <p className="mt-4 text-sm font-semibold text-slate-700">
+                    {files.length >= MAX_FILES
+                      ? 'Maximum 5 images selected'
+                      : 'Click to upload or drag and drop'}
+                  </p>
 
-                      <img
-                        src={preview}
-                        alt="Receipt preview"
-                        className="max-h-48 rounded-xl border border-slate-200 object-contain"
-                      />
-
-                      <p className="mt-3 text-sm font-semibold text-slate-700">
-                        {file?.name}
-                      </p>
-
-                      <p className="mt-1 text-xs text-slate-400">
-                        Click to change receipt
-                      </p>
-
-                    </div>
-
-                  ) : (
-
-                    <>
-
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-
-                        <UploadCloud size={27} />
-
-                      </div>
-
-                      <p className="mt-4 text-sm font-semibold text-slate-700">
-
-                        Click to upload or drag and drop
-
-                      </p>
-
-                      <p className="mt-2 text-xs text-slate-400">
-
-                        JPG, PNG or WEBP · Maximum 5 MB
-
-                      </p>
-
-                    </>
-
-                  )}
+                  <p className="mt-2 text-xs text-slate-400">
+                    JPG, PNG or WEBP · Maximum 5 MB per image · Up to 5 images
+                  </p>
 
                 </div>
 
                 {errs.file && (
-
                   <p className="mt-2 text-xs text-red-500">
                     {errs.file}
                   </p>
+                )}
+
+                {/* IMAGE PREVIEWS */}
+
+                {files.length > 0 && (
+
+                  <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+
+                    {files.map((file, index) => (
+
+                      <div
+                        key={`${file.name}-${index}`}
+                        className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-2"
+                      >
+
+                        <button
+                          type="button"
+                          onClick={() => removeFile(index)}
+                          className="absolute right-3 top-3 z-10 rounded-full bg-red-500 p-1.5 text-white shadow hover:bg-red-600"
+                          aria-label="Remove receipt"
+                        >
+                          <X size={14} />
+                        </button>
+
+                        <img
+                          src={previews[index]}
+                          alt={`Receipt ${index + 1}`}
+                          className="h-28 w-full rounded-lg object-cover"
+                        />
+
+                        <p className="mt-2 truncate text-xs font-semibold text-slate-700">
+                          {file.name}
+                        </p>
+
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          {(file.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+
+                      </div>
+
+                    ))}
+
+                  </div>
 
                 )}
 
-                {preview && (
+                {files.length > 0 && (
 
                   <button
                     type="button"
                     onClick={clear}
                     className="mt-3 flex items-center gap-2 text-xs font-semibold text-red-500 hover:text-red-700"
                   >
-
                     <X size={14} />
-
-                    Remove Receipt
-
+                    Remove All Receipts
                   </button>
 
                 )}
 
               </div>
 
-
               {/* SUBMIT */}
 
               <div className="flex flex-col justify-between gap-4 border-t border-slate-100 pt-5 sm:flex-row sm:items-center">
 
                 <p className="text-xs leading-5 text-slate-400">
-
                   Make sure the amount and receipt details are correct
                   before submitting.
-
                 </p>
 
                 <button
@@ -829,7 +853,6 @@ export default function WorkerDashboard() {
           </div>
 
         </div>
-
 
         {/* QUICK INFORMATION */}
 
@@ -862,29 +885,24 @@ export default function WorkerDashboard() {
             <div className="mt-6 border-t border-white/15 pt-4">
 
               <div className="flex justify-between text-xs text-blue-100">
-
                 <span>Total Funds Received</span>
 
                 <span className="font-semibold text-white">
                   {inr(sm.totalAllocated)}
                 </span>
-
               </div>
 
               <div className="mt-3 flex justify-between text-xs text-blue-100">
-
                 <span>Approved Expenses</span>
 
                 <span className="font-semibold text-white">
                   {inr(sm.approvedAmount)}
                 </span>
-
               </div>
 
             </div>
 
           </div>
-
 
           {/* EXPENSE STATUS */}
 
@@ -927,19 +945,16 @@ export default function WorkerDashboard() {
                 const Icon = item.icon;
 
                 return (
-
                   <div key={item.label}>
 
                     <div className="flex items-center justify-between">
 
                       <div className="flex items-center gap-2">
-
                         <Icon size={16} className="text-slate-400" />
 
                         <span className="text-sm font-medium text-slate-700">
                           {item.label}
                         </span>
-
                       </div>
 
                       <span className="text-sm font-bold text-slate-800">
@@ -957,7 +972,7 @@ export default function WorkerDashboard() {
                             expenses.length
                               ? Math.min(
                                   100,
-                                  (item.count / expenses.length) * 100
+                                  (item.count / expenses.length) * 100,
                                 )
                               : 0
                           }%`,
@@ -971,15 +986,12 @@ export default function WorkerDashboard() {
                     </p>
 
                   </div>
-
                 );
-
               })}
 
             </div>
 
           </div>
-
 
           {/* ACTIVE SITES */}
 
@@ -1042,7 +1054,6 @@ export default function WorkerDashboard() {
 
       </section>
 
-
       {/* MY EXPENSES */}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1054,9 +1065,7 @@ export default function WorkerDashboard() {
             <div className="flex items-center gap-2">
 
               <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
-
                 <FileImage size={19} />
-
               </div>
 
               <h2 className="text-lg font-bold text-slate-900">
@@ -1089,15 +1098,12 @@ export default function WorkerDashboard() {
 
         </div>
 
-
         {!expenses.length ? (
 
           <div className="p-14 text-center">
 
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50 text-slate-400">
-
               <Receipt size={30} />
-
             </div>
 
             <h3 className="mt-4 font-bold text-slate-800">
@@ -1125,81 +1131,105 @@ export default function WorkerDashboard() {
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
 
                 <tr>
-
                   <th className="px-6 py-4">Date</th>
-
                   <th className="px-6 py-4">Site</th>
-
                   <th className="px-6 py-4">Category</th>
-
                   <th className="px-6 py-4">Amount</th>
-
                   <th className="px-6 py-4">Status</th>
-
                   <th className="px-6 py-4">Review Note</th>
-
-                  <th className="px-6 py-4">Receipt</th>
-
+                  <th className="px-6 py-4">Receipts</th>
                 </tr>
 
               </thead>
 
               <tbody className="divide-y divide-slate-100">
 
-                {filteredExpenses.map(e => (
+                {filteredExpenses.map(e => {
 
-                  <tr
-                    key={e.id}
-                    className="transition hover:bg-slate-50"
-                  >
+                  const receiptUrls = e.receiptUrls?.length
+                    ? e.receiptUrls
+                    : e.receiptUrl
+                      ? [e.receiptUrl]
+                      : [];
 
-                    <td className="whitespace-nowrap px-6 py-5 text-sm text-slate-600">
-                      {fmtDate(e.createdAt)}
-                    </td>
+                  return (
 
-                    <td className="px-6 py-5">
+                    <tr
+                      key={e.id}
+                      className="transition hover:bg-slate-50"
+                    >
 
-                      <div className="flex items-center gap-2">
+                      <td className="whitespace-nowrap px-6 py-5 text-sm text-slate-600">
+                        {fmtDate(e.createdAt)}
+                      </td>
 
-                        <Building2 size={16} className="text-slate-400" />
+                      <td className="px-6 py-5">
 
-                        <span className="text-sm font-medium text-slate-800">
-                          {e.siteName}
-                        </span>
+                        <div className="flex items-center gap-2">
 
-                      </div>
+                          <Building2 size={16} className="text-slate-400" />
 
-                    </td>
+                          <span className="text-sm font-medium text-slate-800">
+                            {e.siteName}
+                          </span>
 
-                    <td className="px-6 py-5 text-sm text-slate-600">
-                      {e.category}
-                    </td>
+                        </div>
 
-                    <td className="whitespace-nowrap px-6 py-5 text-sm font-bold text-slate-900">
-                      {inr(e.amount)}
-                    </td>
+                      </td>
 
-                    <td className="px-6 py-5">
+                      <td className="px-6 py-5">
 
-                      <Badge status={e.status} />
+                        <p className="text-sm font-medium text-slate-700">
+                          {e.category}
+                        </p>
 
-                    </td>
+                        {e.subcategory && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            {e.subcategory}
+                          </p>
+                        )}
 
-                    <td className="max-w-[200px] px-6 py-5 text-sm text-slate-500">
+                      </td>
 
-                      {e.reviewNote || '—'}
+                      <td className="whitespace-nowrap px-6 py-5 text-sm font-bold text-slate-900">
+                        {inr(e.amount)}
+                      </td>
 
-                    </td>
+                      <td className="px-6 py-5">
+                        <Badge status={e.status} />
+                      </td>
 
-                    <td className="px-6 py-5">
+                      <td className="max-w-[200px] px-6 py-5 text-sm text-slate-500">
+                        {e.reviewNote || '—'}
+                      </td>
 
-                      <ReceiptButton url={e.receiptUrl} />
+                      <td className="px-6 py-5">
 
-                    </td>
+                        {receiptUrls.length > 0 ? (
 
-                  </tr>
+                          <div className="flex flex-wrap gap-2">
 
-                ))}
+                            {receiptUrls.map((url, index) => (
+                              <ReceiptButton
+                                key={`${e.id}-receipt-${index}`}
+                                url={url}
+                              />
+                            ))}
+
+                          </div>
+
+                        ) : (
+                          <span className="text-xs text-slate-400">
+                            —
+                          </span>
+                        )}
+
+                      </td>
+
+                    </tr>
+
+                  );
+                })}
 
               </tbody>
 
@@ -1210,15 +1240,11 @@ export default function WorkerDashboard() {
         )}
 
         <div className="border-t border-slate-100 bg-slate-50 px-6 py-3 text-xs text-slate-500">
-
           Showing {filteredExpenses.length} of {expenses.length} expenses
-
         </div>
 
       </section>
 
     </div>
-
   );
-
 }

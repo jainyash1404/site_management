@@ -10,6 +10,7 @@ import {
   me,
   parse,
   role,
+  requirePermission,
 } from '../middleware.js';
 
 import { siteOut } from '../serialize.js';
@@ -18,7 +19,7 @@ const r = Router();
 
 r.use(auth);
 
-// Find site
+// FIND SITE
 const find = async (id: unknown) => {
   const site = await Site.findById(idParam(id));
 
@@ -29,7 +30,7 @@ const find = async (id: unknown) => {
   return site;
 };
 
-// Site validation
+// SITE VALIDATION
 const body = z.object({
   name: z.string().trim().min(1, 'Name is required'),
   address: z.string().trim().optional(),
@@ -37,159 +38,212 @@ const body = z.object({
 });
 
 // GET ALL SITES
-r.get('/', async (req, res) => {
-  const sites = await Site.find(
-    me(req).role === 'ADMIN'
-      ? {}
-      : { isActive: true, isCompleted: false }
-  )
-    .sort({ name: 1 })
-    .lean();
+r.get(
+  '/',
+  async (req, res, next) => {
+    if (me(req).role === 'WORKER') {
+      return next();
+    }
 
-  res.json({
-    data: sites.map(siteOut),
-  });
-});
+    return requirePermission('sites.view')(req, res, next);
+  },
+  async (req, res) => {
+    const sites = await Site.find(
+      me(req).role === 'ADMIN'
+        ? {}
+        : {
+            isActive: true,
+            isCompleted: false,
+          }
+    )
+      .sort({ name: 1 })
+      .lean();
+
+    res.json({
+      data: sites.map(siteOut),
+    });
+  }
+);
 
 // CREATE SITE
-r.post('/', role('ADMIN'), async (req, res) => {
-  const site = await Site.create(parse(body, req.body));
+r.post(
+  '/',
+  role('ADMIN'),
+  requirePermission('sites.create'),
+  async (req, res) => {
+    const site = await Site.create(
+      parse(body, req.body)
+    );
 
-  audit(
-    me(req).id,
-    'SITE_CREATED',
-    'Site',
-    site.id
-  );
+    audit(
+      me(req).id,
+      'SITE_CREATED',
+      'Site',
+      site.id
+    );
 
-  res.status(201).json({
-    data: siteOut(site),
-  });
-});
+    res.status(201).json({
+      data: siteOut(site),
+    });
+  }
+);
 
 // UPDATE SITE
-r.patch('/:id', role('ADMIN'), async (req, res) => {
-  const site = await find(req.params.id);
-
-  Object.assign(
-    site,
-    parse(body.partial(), req.body)
-  );
-
-  await site.save();
-
-  audit(
-    me(req).id,
-    'SITE_UPDATED',
-    'Site',
-    site.id
-  );
-
-  res.json({
-    data: siteOut(site),
-  });
-});
-
-// ACTIVATE / DEACTIVATE
-r.patch('/:id/status', role('ADMIN'), async (req, res) => {
-  const { isActive } = parse(
-    z.object({
-      isActive: z.boolean(),
-    }),
-    req.body
-  );
-
-  const site = await find(req.params.id);
-
-  if (isActive && site.isCompleted) {
-    throw new HttpError(
-      409,
-      'Reopen the completed site before activating it.'
+r.patch(
+  '/:id',
+  role('ADMIN'),
+  requirePermission('sites.update'),
+  async (req, res) => {
+    const updates = parse(
+      body.partial(),
+      req.body
     );
+
+    if (Object.keys(updates).length === 0) {
+      throw new HttpError(400, 'No update fields provided');
+    }
+
+    const site = await find(req.params.id);
+
+    Object.assign(site, updates);
+
+    await site.save();
+
+    audit(
+      me(req).id,
+      'SITE_UPDATED',
+      'Site',
+      site.id,
+      { fields: Object.keys(updates) }
+    );
+
+    res.json({
+      data: siteOut(site),
+    });
   }
+);
 
-  site.isActive = isActive;
+// ACTIVATE / DEACTIVATE SITE
+r.patch(
+  '/:id/status',
+  role('ADMIN'),
+  requirePermission('sites.deactivate'),
+  async (req, res) => {
+    const { isActive } = parse(
+      z.object({
+        isActive: z.boolean(),
+      }),
+      req.body
+    );
 
-  await site.save();
+    const site = await find(req.params.id);
 
-  audit(
-    me(req).id,
-    isActive ? 'SITE_ACTIVATED' : 'SITE_DEACTIVATED',
-    'Site',
-    site.id
-  );
+    if (isActive && site.isCompleted) {
+      throw new HttpError(
+        409,
+        'Reopen the completed site before activating it.'
+      );
+    }
 
-  res.json({
-    data: siteOut(site),
-  });
-});
+    site.isActive = isActive;
 
-// MARK COMPLETE / REOPEN
-r.patch('/:id/completion', role('ADMIN'), async (req, res) => {
-  const { isCompleted } = parse(
-    z.object({
-      isCompleted: z.boolean(),
-    }),
-    req.body
-  );
+    await site.save();
 
-  const site = await find(req.params.id);
+    audit(
+      me(req).id,
+      isActive
+        ? 'SITE_ACTIVATED'
+        : 'SITE_DEACTIVATED',
+      'Site',
+      site.id
+    );
 
-  if (isCompleted) {
-    site.isCompleted = true;
-    site.isActive = false;
-  } else {
-    site.isCompleted = false;
+    res.json({
+      data: siteOut(site),
+    });
   }
+);
 
-  await site.save();
+// MARK COMPLETE / REOPEN SITE
+r.patch(
+  '/:id/completion',
+  role('ADMIN'),
+  requirePermission('sites.complete'),
+  async (req, res) => {
+    const { isCompleted } = parse(
+      z.object({
+        isCompleted: z.boolean(),
+      }),
+      req.body
+    );
 
-  audit(
-    me(req).id,
-    isCompleted
-      ? 'SITE_MARKED_COMPLETE'
-      : 'SITE_REOPENED',
-    'Site',
-    site.id
-  );
+    const site = await find(req.params.id);
 
-  res.json({
-    data: siteOut(site),
-  });
-});
+    if (isCompleted) {
+      site.isCompleted = true;
+      site.isActive = false;
+    } else {
+      site.isCompleted = false;
+    }
+
+    await site.save();
+
+    audit(
+      me(req).id,
+      isCompleted
+        ? 'SITE_MARKED_COMPLETE'
+        : 'SITE_REOPENED',
+      'Site',
+      site.id
+    );
+
+    res.json({
+      data: siteOut(site),
+    });
+  }
+);
 
 // DELETE SITE
-r.delete('/:id', role('ADMIN'), async (req, res) => {
-  const site = await find(req.params.id);
+r.delete(
+  '/:id',
+  role('ADMIN'),
+  requirePermission('sites.delete'),
+  async (req, res) => {
+    const site = await find(req.params.id);
 
-  const [fundCount, expenseCount] = await Promise.all([
-    Fund.countDocuments({ siteId: site._id }),
-    Expense.countDocuments({ siteId: site._id }),
-  ]);
+    const [fundCount, expenseCount] = await Promise.all([
+      Fund.countDocuments({
+        siteId: site._id,
+      }),
+      Expense.countDocuments({
+        siteId: site._id,
+      }),
+    ]);
 
-  // Protect financial history
-  if (fundCount > 0 || expenseCount > 0) {
-    throw new HttpError(
-      409,
-      `Cannot delete this site. It has ${fundCount} fund records and ${expenseCount} expense records.`
+    // Protect financial history
+    if (fundCount > 0 || expenseCount > 0) {
+      throw new HttpError(
+        409,
+        `Cannot delete this site. It has ${fundCount} fund records and ${expenseCount} expense records.`
+      );
+    }
+
+    await site.deleteOne();
+
+    audit(
+      me(req).id,
+      'SITE_DELETED',
+      'Site',
+      String(site._id)
     );
+
+    res.json({
+      data: {
+        id: String(site._id),
+        deleted: true,
+      },
+    });
   }
-
-  await site.deleteOne();
-
-  audit(
-    me(req).id,
-    'SITE_DELETED',
-    'Site',
-    String(site._id)
-  );
-
-  res.json({
-    data: {
-      id: String(site._id),
-      deleted: true,
-    },
-  });
-});
+);
 
 export default r;

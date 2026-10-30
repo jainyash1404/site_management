@@ -6,6 +6,7 @@ import {
   Menu,
   X,
   ShieldCheck,
+  UserCircle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -23,11 +24,19 @@ export default function Shell({
 }: {
   links: LinkItem[];
 }) {
-  const { user, logout } = useAuth();
+  const { user, logout, isSuperAdmin } = useAuth();
+
+const roleLabel =
+  user?.role === 'WORKER'
+    ? 'Worker'
+    : isSuperAdmin
+      ? 'Super Admin'
+      : 'Administrator';
   const [open, setOpen] = useState(false);
 
   const initials = (user?.name || 'Admin')
-    .split(' ')
+    .trim()
+    .split(/\s+/)
     .map((part) => part[0])
     .join('')
     .slice(0, 2)
@@ -95,76 +104,72 @@ export default function Shell({
           </NavLink>
         );
       })}
+
+      {links.length === 0 && (
+        <p className="px-3 py-4 text-sm text-slate-400">
+          No modules assigned yet.
+        </p>
+      )}
     </nav>
   );
 
-const profile = (
-  <div className="border-t border-slate-200 pt-4">
+  const profile = (
+    <div className="border-t border-slate-200 pt-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-100 p-3.5">
+        <div className="flex items-center gap-3">
+          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-700 to-indigo-600 text-base font-bold tracking-wide text-white shadow-md">
+            {initials || <UserCircle className="h-6 w-6" />}
 
-    {/* Admin Profile Card */}
-    <div className="rounded-xl border border-slate-200 bg-slate-100 p-3.5">
+            <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-[2.5px] border-slate-100 bg-emerald-500" />
+          </div>
 
-      <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-[14px] font-bold tracking-tight text-slate-900">
+              {user?.name || 'Administrator'}
+            </h3>
 
-        {/* Avatar */}
-        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-700 to-indigo-600 text-base font-bold tracking-wide text-white shadow-md">
-          SJ
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1">
+              <ShieldCheck className="h-3 w-3 text-blue-700" />
 
-          <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-[2.5px] border-slate-100 bg-emerald-500" />
-        </div>
-
-        {/* Admin Information */}
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[14px] font-bold tracking-tight text-slate-900">
-            Sachin Jain
-          </h3>
-
-          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1">
-            <ShieldCheck className="h-3 w-3 text-blue-700" />
-            <span className="text-[9px] font-bold uppercase tracking-wider text-blue-800">
-              Administrator
-            </span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-blue-800">
+                 {roleLabel}
+              </span>
+            </div>
           </div>
         </div>
+
+        <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-2.5">
+          <span className="text-[11px] font-medium text-slate-500">
+            Account status
+          </span>
+
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            Active
+          </span>
+        </div>
       </div>
 
-      {/* Account Status */}
-      <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-2.5">
-        <span className="text-[11px] font-medium text-slate-500">
-          Account status
-        </span>
-
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          Active
-        </span>
-      </div>
+      <button
+        type="button"
+        onClick={logout}
+        className="mt-3 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-red-50 hover:text-red-600"
+      >
+        <LogOut className="h-[18px] w-[18px]" />
+        Logout
+      </button>
     </div>
-
-    {/* Logout */}
-    <button
-      type="button"
-      onClick={logout}
-      className="mt-3 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-red-50 hover:text-red-600"
-    >
-      <LogOut className="h-[18px] w-[18px]" />
-      Logout
-    </button>
-
-  </div>
-);
+  );
 
   return (
     <div className="min-h-screen bg-[#f6f8fc] md:flex">
-
       {/* Desktop Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-[250px] shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6 md:flex">
-
         <div className="mb-10 px-2">
           {branding}
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 overflow-y-auto">
           {navigation}
         </div>
 
@@ -197,6 +202,7 @@ const profile = (
             <div className="flex-1">
               {navigation}
             </div>
+
             {profile}
           </div>
         </div>

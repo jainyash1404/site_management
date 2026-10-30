@@ -17,9 +17,10 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
-import { E, errMsg, http, list, send } from '../api';
+import { E, errMsg, list, send } from '../api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import type { Site } from '../types';
 
 type Filter = 'all' | 'active' | 'inactive' | 'completed';
@@ -43,6 +44,13 @@ const emptyForm: SiteForm = {
 
 export default function SitesPage() {
   const toast = useToast();
+  const { hasPermission } = useAuth();
+
+  const canCreate = hasPermission('sites.create');
+  const canUpdate = hasPermission('sites.update');
+  const canDeactivate = hasPermission('sites.deactivate');
+  const canComplete = hasPermission('sites.complete');
+  const canDelete = hasPermission('sites.delete');
 
   const { data, loading, error, reload } = useApi(
     () => list<Site>(E.sites),
@@ -63,11 +71,10 @@ export default function SitesPage() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState('');
 
-  // Dashboard confirmation state
   const [confirmAction, setConfirmAction] =
     useState<ConfirmAction | null>(null);
 
-  // Statistics
+  // STATISTICS
   const activeCount = sites.filter(
     s => s.isActive && !s.isCompleted
   ).length;
@@ -80,7 +87,7 @@ export default function SitesPage() {
     s => s.isCompleted
   ).length;
 
-  // Search and filters
+  // SEARCH AND FILTERS
   const filteredSites = useMemo(() => {
     return sites.filter(site => {
       const q = search.trim().toLowerCase();
@@ -101,16 +108,20 @@ export default function SitesPage() {
     });
   }, [sites, search, filter]);
 
-  // Open create modal
+  // OPEN CREATE MODAL
   const openCreate = () => {
+    if (!canCreate) return;
+
     setEditing(null);
     setForm(emptyForm);
     setFormError('');
     setModalOpen(true);
   };
 
-  // Open edit modal
+  // OPEN EDIT MODAL
   const openEdit = (site: Site) => {
+    if (!canUpdate) return;
+
     setEditing(site);
 
     setForm({
@@ -132,9 +143,13 @@ export default function SitesPage() {
     setFormError('');
   };
 
-  // Create / Update site
+  // CREATE / UPDATE SITE
   const saveSite = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    if (saving) return;
+    if (editing && !canUpdate) return;
+    if (!editing && !canCreate) return;
 
     if (!form.name.trim()) {
       setFormError('Site name is required.');
@@ -142,6 +157,7 @@ export default function SitesPage() {
     }
 
     setSaving(true);
+    setFormError('');
 
     try {
       const payload = {
@@ -176,12 +192,19 @@ export default function SitesPage() {
     }
   };
 
-  // Ask for confirmation inside dashboard
+  // ASK FOR CONFIRMATION
   const askConfirmation = (
     type: ConfirmAction['type'],
     site: Site
   ) => {
     if (busyId) return;
+
+    if (type === 'delete' && !canDelete) return;
+    if (type === 'deactivate' && !canDeactivate) return;
+    if (
+      (type === 'complete' || type === 'reopen') &&
+      !canComplete
+    ) return;
 
     setConfirmAction({
       type,
@@ -189,9 +212,9 @@ export default function SitesPage() {
     });
   };
 
-  // Activate directly
+  // ACTIVATE SITE
   const activateSite = async (site: Site) => {
-    if (busyId) return;
+    if (!canDeactivate || busyId) return;
 
     setBusyId(site.id);
 
@@ -212,24 +235,28 @@ export default function SitesPage() {
     }
   };
 
-  // Execute confirmed action
+  // EXECUTE CONFIRMED ACTION
   const executeConfirmAction = async () => {
     if (!confirmAction || busyId) return;
 
     const { type, site } = confirmAction;
 
+    if (type === 'delete' && !canDelete) return;
+    if (type === 'deactivate' && !canDeactivate) return;
+    if (
+      (type === 'complete' || type === 'reopen') &&
+      !canComplete
+    ) return;
+
     setBusyId(site.id);
 
     try {
-
-      // DELETE
       if (type === 'delete') {
-        await http.delete(`${E.sites}/${site.id}`);
+        await send('delete', `${E.sites}/${site.id}`);
 
         toast('Site deleted successfully');
       }
 
-      // DEACTIVATE
       else if (type === 'deactivate') {
         await send(
           'patch',
@@ -240,7 +267,6 @@ export default function SitesPage() {
         toast('Site deactivated successfully');
       }
 
-      // MARK COMPLETE
       else if (type === 'complete') {
         await send(
           'patch',
@@ -251,7 +277,6 @@ export default function SitesPage() {
         toast('Site marked as completed');
       }
 
-      // REOPEN
       else if (type === 'reopen') {
         await send(
           'patch',
@@ -259,13 +284,21 @@ export default function SitesPage() {
           { isCompleted: false }
         );
 
-        await send(
-          'patch',
-          E.status(E.sites, site.id),
-          { isActive: true }
-        );
+        // Reopening and activating are separate permissions.
+        // Activate only when the admin also has sites.deactivate.
+        if (canDeactivate) {
+          await send(
+            'patch',
+            E.status(E.sites, site.id),
+            { isActive: true }
+          );
+        }
 
-        toast('Site reopened successfully');
+        toast(
+          canDeactivate
+            ? 'Site reopened and activated successfully'
+            : 'Site reopened successfully. Activate it separately if permitted.'
+        );
       }
 
       setConfirmAction(null);
@@ -278,7 +311,7 @@ export default function SitesPage() {
     }
   };
 
-  // Status badge
+  // STATUS BADGE
   const badge = (site: Site) => {
     if (site.isCompleted) {
       return 'bg-violet-50 text-violet-700';
@@ -297,7 +330,7 @@ export default function SitesPage() {
     return site.isActive ? 'Active' : 'Inactive';
   };
 
-  // Confirmation content
+  // CONFIRMATION CONTENT
   const confirmationDetails = {
     delete: {
       title: 'Delete Site?',
@@ -340,7 +373,7 @@ export default function SitesPage() {
       iconColor: 'bg-violet-50 text-violet-600',
       icon: Activity,
       warning:
-        'This site will become active again and workers can resume work.',
+        'This site will become active again only if you have activation permission.',
     },
   };
 
@@ -370,13 +403,15 @@ export default function SitesPage() {
             </p>
           </div>
 
-          <button
-            onClick={openCreate}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold hover:bg-blue-500"
-          >
-            <Plus size={18} />
-            Add New Site
-          </button>
+          {canCreate && (
+            <button
+              onClick={openCreate}
+              className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold hover:bg-blue-500"
+            >
+              <Plus size={18} />
+              Add New Site
+            </button>
+          )}
 
         </div>
 
@@ -467,7 +502,7 @@ export default function SitesPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              View, edit, complete or delete your construction sites.
+              View and manage your construction sites.
             </p>
           </div>
 
@@ -525,12 +560,14 @@ export default function SitesPage() {
             </h3>
 
             <p className="mt-1 text-sm text-slate-500">
-              Try changing your search or add a new site.
+              Try changing your search or filter.
             </p>
 
           </div>
         ) : (
           <>
+            {/* DESKTOP TABLE */}
+
             <div className="hidden overflow-x-auto md:block">
 
               <table className="w-full text-left">
@@ -592,56 +629,66 @@ export default function SitesPage() {
                       <td className="px-6 py-5">
                         <div className="flex items-center justify-end gap-2">
 
-                          <button
-                            disabled={!!busyId}
-                            onClick={() => openEdit(site)}
-                            className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
-                            title="Edit site"
-                          >
-                            <Edit3 size={16} />
-                          </button>
-
-                          {site.isCompleted ? (
+                          {canUpdate && (
                             <button
                               disabled={!!busyId}
-                              onClick={() => askConfirmation('reopen', site)}
-                              className="rounded-lg bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-40"
+                              onClick={() => openEdit(site)}
+                              className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
+                              title="Edit site"
                             >
-                              Reopen
+                              <Edit3 size={16} />
                             </button>
-                          ) : (
-                            <>
+                          )}
+
+                          {site.isCompleted ? (
+                            canComplete && (
                               <button
                                 disabled={!!busyId}
-                                onClick={() =>
-                                  site.isActive
-                                    ? askConfirmation('deactivate', site)
-                                    : activateSite(site)
-                                }
-                                className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
+                                onClick={() => askConfirmation('reopen', site)}
+                                className="rounded-lg bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-40"
                               >
-                                {site.isActive ? 'Deactivate' : 'Activate'}
+                                Reopen
                               </button>
+                            )
+                          ) : (
+                            <>
+                              {canDeactivate && (
+                                <button
+                                  disabled={!!busyId}
+                                  onClick={() =>
+                                    site.isActive
+                                      ? askConfirmation('deactivate', site)
+                                      : activateSite(site)
+                                  }
+                                  className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
+                                >
+                                  {site.isActive ? 'Deactivate' : 'Activate'}
+                                </button>
+                              )}
 
-                              <button
-                                disabled={!!busyId || !site.isActive}
-                                onClick={() => askConfirmation('complete', site)}
-                                className="flex items-center gap-1 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                              >
-                                <Flag size={13} />
-                                Complete
-                              </button>
+                              {canComplete && (
+                                <button
+                                  disabled={!!busyId || !site.isActive}
+                                  onClick={() => askConfirmation('complete', site)}
+                                  className="flex items-center gap-1 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                                >
+                                  <Flag size={13} />
+                                  Complete
+                                </button>
+                              )}
                             </>
                           )}
 
-                          <button
-                            disabled={!!busyId}
-                            onClick={() => askConfirmation('delete', site)}
-                            className="rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-40"
-                            title="Delete site"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {canDelete && (
+                            <button
+                              disabled={!!busyId}
+                              onClick={() => askConfirmation('delete', site)}
+                              className="rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-40"
+                              title="Delete site"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
 
                         </div>
                       </td>
@@ -685,54 +732,64 @@ export default function SitesPage() {
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
 
-                    <button
-                      onClick={() => openEdit(site)}
-                      disabled={!!busyId}
-                      className="rounded-lg border p-2 text-xs font-semibold"
-                    >
-                      Edit
-                    </button>
+                    {canUpdate && (
+                      <button
+                        onClick={() => openEdit(site)}
+                        disabled={!!busyId}
+                        className="rounded-lg border p-2 text-xs font-semibold"
+                      >
+                        Edit
+                      </button>
+                    )}
 
                     {site.isCompleted ? (
-                      <button
-                        onClick={() => askConfirmation('reopen', site)}
-                        disabled={!!busyId}
-                        className="rounded-lg bg-violet-50 p-2 text-xs font-semibold text-violet-700"
-                      >
-                        Reopen
-                      </button>
+                      canComplete && (
+                        <button
+                          onClick={() => askConfirmation('reopen', site)}
+                          disabled={!!busyId}
+                          className="rounded-lg bg-violet-50 p-2 text-xs font-semibold text-violet-700"
+                        >
+                          Reopen
+                        </button>
+                      )
                     ) : (
                       <>
-                        <button
-                          onClick={() => askConfirmation('complete', site)}
-                          disabled={!!busyId || !site.isActive}
-                          className="rounded-lg bg-blue-50 p-2 text-xs font-semibold text-blue-700"
-                        >
-                          Mark Complete
-                        </button>
+                        {canComplete && (
+                          <button
+                            onClick={() => askConfirmation('complete', site)}
+                            disabled={!!busyId || !site.isActive}
+                            className="rounded-lg bg-blue-50 p-2 text-xs font-semibold text-blue-700"
+                          >
+                            Mark Complete
+                          </button>
+                        )}
 
-                        <button
-                          onClick={() =>
-                            site.isActive
-                              ? askConfirmation('deactivate', site)
-                              : activateSite(site)
-                          }
-                          disabled={!!busyId}
-                          className="rounded-lg bg-slate-100 p-2 text-xs font-semibold"
-                        >
-                          {site.isActive ? 'Deactivate' : 'Activate'}
-                        </button>
+                        {canDeactivate && (
+                          <button
+                            onClick={() =>
+                              site.isActive
+                                ? askConfirmation('deactivate', site)
+                                : activateSite(site)
+                            }
+                            disabled={!!busyId}
+                            className="rounded-lg bg-slate-100 p-2 text-xs font-semibold"
+                          >
+                            {site.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                        )}
                       </>
                     )}
 
-                    <button
-                      onClick={() => askConfirmation('delete', site)}
-                      disabled={!!busyId}
-                      className="flex items-center justify-center gap-1 rounded-lg bg-red-50 p-2 text-xs font-semibold text-red-600"
-                    >
-                      <Trash2 size={14} />
-                      Delete
-                    </button>
+                    {canDelete && (
+                      <button
+                        onClick={() => askConfirmation('delete', site)}
+                        disabled={!!busyId}
+                        className="flex items-center justify-center gap-1 rounded-lg bg-red-50 p-2 text-xs font-semibold text-red-600"
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    )}
 
                   </div>
 
@@ -872,7 +929,7 @@ export default function SitesPage() {
         </div>
       )}
 
-      {/* DASHBOARD CONFIRMATION MODAL */}
+      {/* CONFIRMATION MODAL */}
 
       {confirmAction && (() => {
         const config = confirmationDetails[confirmAction.type];

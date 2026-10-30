@@ -1,28 +1,147 @@
 import { Schema, model, Types } from 'mongoose';
 
-// Money is stored as integer paise (₹1 = 100 paise) and converted to rupees only in API responses.
-const paise = { type: Number, required: true, validate: { validator: Number.isInteger, message: 'amount must be integer paise' } };
-const ref = (to: string, required = true) => ({ type: Schema.Types.ObjectId, ref: to, required });
+// Money is stored as integer paise (₹1 = 100 paise)
+// and converted to rupees only in API responses.
+const paise = {
+  type: Number,
+  required: true,
+  validate: {
+    validator: Number.isInteger,
+    message: 'amount must be integer paise',
+  },
+};
 
+const ref = (to: string, required = true) => ({
+  type: Schema.Types.ObjectId,
+  ref: to,
+  required,
+});
+
+// Admin permission definitions
+export const ADMIN_PERMISSIONS = [
+  'dashboard.view',
+
+  'workers.view',
+  'workers.create',
+  'workers.update',
+  'workers.deactivate',
+
+  'sites.view',
+  'sites.create',
+  'sites.update',
+  'sites.deactivate',
+  'sites.complete',
+'sites.delete',
+
+  'funds.view',
+  'funds.allocate',
+
+  'expenses.view',
+  'expenses.approve',
+  'expenses.reject',
+
+  'categories.view',
+  'categories.create',
+  'categories.update',
+  'categories.deactivate',
+  'categories.delete',
+'categories.subcategories',
+] as const;
+
+export type AdminPermission = typeof ADMIN_PERMISSIONS[number];
+
+// User Model
 export const User = model('User', new Schema({
-  name: { type: String, required: true, trim: true },
-  phone: { type: String, required: true, unique: true },
-  email: { type: String, trim: true, default: '' },
-  passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['ADMIN', 'WORKER'], required: true },
-  isActive: { type: Boolean, default: true },
-  pendingApproval: { type: Boolean, default: false }, // self-signup waiting for the owner
-  passwordChangedAt: Date, resetTokenHash: String, resetExpires: Date, resetRequestedAt: Date,
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  phone: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+
+  email: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+
+  passwordHash: {
+    type: String,
+    required: true,
+  },
+
+  role: {
+    type: String,
+    enum: ['ADMIN', 'WORKER'],
+    required: true,
+  },
+
+  // Super Admin has complete access
+  isSuperAdmin: {
+    type: Boolean,
+    default: false,
+  },
+
+  // Individual permissions for normal admins
+  permissions: {
+    type: [String],
+    enum: [...ADMIN_PERMISSIONS],
+    default: [],
+  },
+
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+
+  pendingApproval: {
+    type: Boolean,
+    default: false,
+  },
+
+  passwordChangedAt: Date,
+  resetTokenHash: String,
+  resetExpires: Date,
+  resetRequestedAt: Date,
+
 }, { timestamps: true }));
 
+// Site Model
 export const Site = model('Site', new Schema({
-  name: { type: String, required: true, trim: true },
-  address: { type: String, default: '' },
-  description: { type: String, default: '' },
-  isActive: { type: Boolean, default: true },
-  isCompleted: { type: Boolean, default: false },
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  address: {
+    type: String,
+    default: '',
+  },
+
+  description: {
+    type: String,
+    default: '',
+  },
+
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+
+  isCompleted: {
+    type: Boolean,
+    default: false,
+  },
+
 }, { timestamps: true }));
 
+// Category Model
 export const Category = model('Category', new Schema({
   name: {
     type: String,
@@ -59,27 +178,149 @@ export const Category = model('Category', new Schema({
   },
 }));
 
-// Append-only ledger of money given to workers. There are no update/delete routes.
+// Append-only ledger of money given to workers.
+// There are no update/delete routes.
 export const Fund = model('Fund', new Schema({
-  workerId: { ...ref('User'), index: true }, siteId: ref('Site', false),
-  amountPaise: paise, type: { type: String, enum: ['INITIAL', 'ADDITIONAL'], required: true },
-  notes: { type: String, default: '' }, createdBy: ref('User'),
-}, { timestamps: { createdAt: true, updatedAt: false } }));
+  workerId: {
+    ...ref('User'),
+    index: true,
+  },
 
+  siteId: ref('Site', false),
+
+  amountPaise: paise,
+
+  type: {
+    type: String,
+    enum: ['INITIAL', 'ADDITIONAL'],
+    required: true,
+  },
+
+  notes: {
+    type: String,
+    default: '',
+  },
+
+  createdBy: ref('User'),
+
+}, {
+  timestamps: {
+    createdAt: true,
+    updatedAt: false,
+  },
+}));
+
+// Expense Model
+// Expense Model
 export const Expense = model('Expense', new Schema({
-  workerId: { ...ref('User'), index: true }, siteId: { ...ref('Site'), index: true },
-  category: { type: String, required: true }, amountPaise: { ...paise, min: 1 },
-  description: { type: String, default: '' },
-  status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING', index: true },
-  reviewNote: { type: String, default: '' }, reviewedBy: ref('User', false), reviewedAt: Date,
+  workerId: {
+    ...ref('User'),
+    index: true,
+  },
+
+  siteId: {
+    ...ref('Site'),
+    index: true,
+  },
+
+  category: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+
+  subcategory: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+
+  amountPaise: {
+    ...paise,
+    min: 1,
+  },
+
+  description: {
+    type: String,
+    default: '',
+  },
+
+  status: {
+    type: String,
+    enum: ['PENDING', 'APPROVED', 'REJECTED'],
+    default: 'PENDING',
+    index: true,
+  },
+
+  reviewNote: {
+    type: String,
+    default: '',
+  },
+
+  reviewedBy: ref('User', false),
+  reviewedAt: Date,
+
+  // Backward compatibility with existing expenses
   receiptKey: String,
-  history: [{ _id: false, status: String, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date, note: String }],
+
+  // Supports up to 5 receipt images
+  receiptKeys: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: (v: string[]) => v.length <= 5,
+      message: 'Maximum 5 receipt images are allowed',
+    },
+  },
+
+  history: [{
+    _id: false,
+    status: String,
+    by: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    at: Date,
+    note: String,
+  }],
+
 }, { timestamps: true }));
 
+// Audit Log Model
 export const AuditLog = model('AuditLog', new Schema({
-  actorId: ref('User'), action: { type: String, required: true }, entity: String, entityId: String, meta: Schema.Types.Mixed,
-}, { timestamps: { createdAt: true, updatedAt: false } }));
+  actorId: ref('User'),
 
-export const audit = (actorId: string, action: string, entity: string, entityId: string, meta?: object) =>
-  AuditLog.create({ actorId, action, entity, entityId, meta }).catch(e => console.error('audit failed', e));
+  action: {
+    type: String,
+    required: true,
+  },
+
+  entity: String,
+  entityId: String,
+  meta: Schema.Types.Mixed,
+
+}, {
+  timestamps: {
+    createdAt: true,
+    updatedAt: false,
+  },
+}));
+
+// Audit helper
+export const audit = (
+  actorId: string,
+  action: string,
+  entity: string,
+  entityId: string,
+  meta?: object,
+) =>
+  AuditLog.create({
+    actorId,
+    action,
+    entity,
+    entityId,
+    meta,
+  }).catch(e => console.error('audit failed', e));
+
+// ObjectId helper
 export const oid = (s: string) => new Types.ObjectId(s);

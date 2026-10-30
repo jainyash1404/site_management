@@ -16,8 +16,6 @@ import {
   Check,
   AlertTriangle,
   ShieldCheck,
-  Clock,
-  IndianRupee,
   RefreshCw,
   UserRound,
 } from 'lucide-react';
@@ -25,6 +23,7 @@ import {
 import { E, errMsg, list, send } from '../api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import { inr } from '../lib/format';
 import type { Worker } from '../types';
 
@@ -42,6 +41,16 @@ type ConfirmAction = {
   action: 'activate' | 'deactivate';
 };
 
+type WorkerWithStats = Worker & {
+  totalAllocated?: number;
+  approvedAmount?: number;
+  pendingAmount?: number;
+  rejectedAmount?: number;
+  availableBalance?: number;
+  pendingCount?: number;
+  rejectedCount?: number;
+};
+
 const emptyForm: WorkerForm = {
   name: '',
   phone: '',
@@ -51,17 +60,25 @@ const emptyForm: WorkerForm = {
 
 export default function WorkersPage() {
   const toast = useToast();
+  const { hasPermission } = useAuth();
+
+  const canCreate = hasPermission('workers.create');
+  const canUpdate = hasPermission('workers.update');
+  const canDeactivate = hasPermission('workers.deactivate');
+
+  const canViewFunds = hasPermission('funds.view');
+  const canViewExpenses = hasPermission('expenses.view');
+  const canViewBalance = canViewFunds && canViewExpenses;
 
   const {
     data,
     loading,
     error,
     reload,
-  } = useApi(() => list<Worker & {
-    totalAllocated?: number;
-    pendingAmount?: number;
-    availableBalance?: number;
-  }>(E.workers), []);
+  } = useApi(
+    () => list<WorkerWithStats>(E.workers),
+    [],
+  );
 
   const workers = data?.items ?? [];
 
@@ -80,21 +97,14 @@ export default function WorkersPage() {
   const [confirmAction, setConfirmAction] =
     useState<ConfirmAction | null>(null);
 
-  // Statistics
   const activeWorkers = workers.filter(w => w.isActive);
   const inactiveWorkers = workers.filter(w => !w.isActive);
 
   const totalAllocated = workers.reduce(
     (sum, w) => sum + Number(w.totalAllocated || 0),
-    0
+    0,
   );
 
-  const totalPending = workers.reduce(
-    (sum, w) => sum + Number(w.pendingAmount || 0),
-    0
-  );
-
-  // Search and filtering
   const filteredWorkers = useMemo(() => {
     return workers.filter(worker => {
       const q = search.trim().toLowerCase();
@@ -114,16 +124,18 @@ export default function WorkersPage() {
     });
   }, [workers, search, filter]);
 
-  // Open create modal
   const openCreate = () => {
+    if (!canCreate) return;
+
     setEditing(null);
     setForm(emptyForm);
     setFormError('');
     setModalOpen(true);
   };
 
-  // Open edit modal
   const openEdit = (worker: Worker) => {
+    if (!canUpdate) return;
+
     setEditing(worker);
 
     setForm({
@@ -146,11 +158,13 @@ export default function WorkersPage() {
     setFormError('');
   };
 
-  // Save worker
   const saveWorker = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (saving) return;
+
+    if (editing && !canUpdate) return;
+    if (!editing && !canCreate) return;
 
     const errors: Record<string, string> = {};
 
@@ -197,29 +211,17 @@ export default function WorkersPage() {
       }
 
       if (editing) {
-        await send(
-          'patch',
-          `${E.workers}/${editing.id}`,
-          payload
-        );
-
+        await send('patch', `${E.workers}/${editing.id}`, payload);
         toast('Worker updated successfully');
       } else {
-        await send(
-          'post',
-          E.workers,
-          payload
-        );
-
+        await send('post', E.workers, payload);
         toast('Worker added successfully');
       }
 
       setModalOpen(false);
       setEditing(null);
       setForm(emptyForm);
-
       reload();
-
     } catch (err) {
       setFormError(errMsg(err));
     } finally {
@@ -227,9 +229,8 @@ export default function WorkersPage() {
     }
   };
 
-  // Ask confirmation for status change
   const askStatusConfirmation = (worker: Worker) => {
-    if (busyId) return;
+    if (!canDeactivate || busyId) return;
 
     setConfirmAction({
       worker,
@@ -237,9 +238,8 @@ export default function WorkersPage() {
     });
   };
 
-  // Execute confirmation
   const executeStatusChange = async () => {
-    if (!confirmAction || busyId) return;
+    if (!confirmAction || busyId || !canDeactivate) return;
 
     const { worker, action } = confirmAction;
 
@@ -249,18 +249,17 @@ export default function WorkersPage() {
       await send(
         'patch',
         E.status(E.workers, worker.id),
-        { isActive: action === 'activate' }
+        { isActive: action === 'activate' },
       );
 
       toast(
         action === 'activate'
           ? 'Worker activated successfully'
-          : 'Worker deactivated successfully'
+          : 'Worker deactivated successfully',
       );
 
       setConfirmAction(null);
       reload();
-
     } catch (err) {
       toast(errMsg(err), 'err');
     } finally {
@@ -268,7 +267,6 @@ export default function WorkersPage() {
     }
   };
 
-  // Stat cards
   const stats = [
     {
       title: 'Total Workers',
@@ -291,13 +289,15 @@ export default function WorkersPage() {
       icon: UserX,
       color: 'bg-amber-50 text-amber-600',
     },
-    {
-      title: 'Total Allocated',
-      value: inr(totalAllocated),
-      description: 'Funds allocated to workers',
-      icon: Wallet,
-      color: 'bg-violet-50 text-violet-600',
-    },
+    ...(canViewFunds
+      ? [{
+          title: 'Total Allocated',
+          value: inr(totalAllocated),
+          description: 'Funds allocated to workers',
+          icon: Wallet,
+          color: 'bg-violet-50 text-violet-600',
+        }]
+      : []),
   ];
 
   return (
@@ -306,13 +306,10 @@ export default function WorkersPage() {
       {/* HEADER */}
 
       <section className="relative overflow-hidden rounded-2xl bg-slate-950 p-7 text-white">
-
         <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full border-[40px] border-white/5" />
 
         <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
-
           <div>
-
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-300">
               <Users size={15} />
               Workforce Management
@@ -323,23 +320,22 @@ export default function WorkersPage() {
             </h1>
 
             <p className="mt-2 text-sm text-slate-300">
-              Manage your workforce, monitor allocated funds and track worker accounts.
+              Manage your workforce and monitor worker accounts.
             </p>
-
           </div>
 
-          <button
-            onClick={openCreate}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold hover:bg-blue-500"
-          >
-            <Plus size={18} />
-            Add Worker
-          </button>
-
+          {canCreate && (
+            <button
+              onClick={openCreate}
+              className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold hover:bg-blue-500"
+            >
+              <Plus size={18} />
+              Add Worker
+            </button>
+          )}
         </div>
 
         <div className="relative mt-6 flex flex-wrap items-center gap-5 border-t border-white/10 pt-4 text-xs text-slate-400">
-
           <div className="flex items-center gap-2">
             <UserRound size={14} />
             {workers.length} Registered Workers
@@ -349,16 +345,12 @@ export default function WorkersPage() {
             <ShieldCheck size={14} />
             Workforce Administration
           </div>
-
         </div>
-
       </section>
-
 
       {/* STATISTICS */}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
+      <section className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${stats.length === 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
         {stats.map(item => {
           const Icon = item.icon;
 
@@ -367,11 +359,8 @@ export default function WorkersPage() {
               key={item.title}
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
             >
-
               <div className="flex items-start justify-between">
-
                 <div>
-
                   <p className="text-sm font-medium text-slate-500">
                     {item.title}
                   </p>
@@ -383,44 +372,33 @@ export default function WorkersPage() {
                   <p className="mt-1 text-xs text-slate-400">
                     {item.description}
                   </p>
-
                 </div>
 
                 <div className={`rounded-xl p-3 ${item.color}`}>
                   <Icon size={22} />
                 </div>
-
               </div>
-
             </div>
           );
         })}
-
       </section>
-
 
       {/* WORKER DIRECTORY */}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
         <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-6 lg:flex-row lg:items-center">
-
           <div>
-
             <h2 className="text-lg font-bold text-slate-900">
               Worker Directory
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Manage worker accounts, funds and activity.
+              Manage worker accounts and activity.
             </p>
-
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-
             <div className="relative">
-
               <Search
                 size={17}
                 className="absolute left-3 top-3 text-slate-400"
@@ -432,7 +410,6 @@ export default function WorkersPage() {
                 placeholder="Search workers..."
                 className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none focus:border-blue-500 sm:w-64"
               />
-
             </div>
 
             <select
@@ -452,30 +429,19 @@ export default function WorkersPage() {
               <RefreshCw size={15} />
               Refresh
             </button>
-
           </div>
-
         </div>
 
-
-        {/* LOADING */}
-
         {loading ? (
-
           <div className="p-12 text-center text-sm text-slate-500">
             Loading workers...
           </div>
-
         ) : error ? (
-
           <div className="m-5 rounded-xl bg-red-50 p-4 text-sm text-red-600">
             Unable to load workers. Please refresh and try again.
           </div>
-
         ) : filteredWorkers.length === 0 ? (
-
           <div className="p-14 text-center">
-
             <Users className="mx-auto mb-4 text-slate-300" size={40} />
 
             <h3 className="font-semibold text-slate-800">
@@ -483,55 +449,50 @@ export default function WorkersPage() {
             </h3>
 
             <p className="mt-1 text-sm text-slate-500">
-              Try changing your search or add a new worker.
+              Try changing your search or filter.
             </p>
-
           </div>
-
         ) : (
-
           <>
             {/* DESKTOP TABLE */}
 
             <div className="hidden overflow-x-auto lg:block">
-
               <table className="w-full text-left">
-
                 <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-
                   <tr>
                     <th className="px-5 py-4">Worker</th>
                     <th className="px-5 py-4">Contact</th>
-                    <th className="px-5 py-4">Allocated</th>
-                    <th className="px-5 py-4">Pending</th>
-                    <th className="px-5 py-4">Balance</th>
+
+                    {canViewFunds && (
+                      <th className="px-5 py-4">Allocated</th>
+                    )}
+
+                    {canViewExpenses && (
+                      <th className="px-5 py-4">Pending</th>
+                    )}
+
+                    {canViewBalance && (
+                      <th className="px-5 py-4">Balance</th>
+                    )}
+
                     <th className="px-5 py-4">Status</th>
                     <th className="px-5 py-4 text-right">Actions</th>
                   </tr>
-
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-
                   {filteredWorkers.map(worker => (
-
                     <tr
                       key={worker.id}
                       className="transition hover:bg-slate-50"
                     >
-
-                      {/* NAME */}
-
                       <td className="px-5 py-5">
-
                         <div className="flex items-center gap-3">
-
                           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 font-bold text-blue-700">
                             {worker.name.charAt(0).toUpperCase()}
                           </div>
 
                           <div>
-
                             <p className="font-semibold text-slate-800">
                               {worker.name}
                             </p>
@@ -541,7 +502,6 @@ export default function WorkersPage() {
                             </p>
 
                             <div className="mt-1 flex flex-wrap gap-1">
-
                               {worker.pendingApproval && (
                                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                                   Awaiting Approval
@@ -553,22 +513,13 @@ export default function WorkersPage() {
                                   Password Reset Requested
                                 </span>
                               )}
-
                             </div>
-
                           </div>
-
                         </div>
-
                       </td>
 
-
-                      {/* CONTACT */}
-
                       <td className="px-5 py-5">
-
                         <div className="space-y-1">
-
                           <p className="flex items-center gap-2 text-sm text-slate-700">
                             <Phone size={13} className="text-slate-400" />
                             {worker.phone}
@@ -578,37 +529,28 @@ export default function WorkersPage() {
                             <Mail size={13} />
                             {worker.email || 'No email'}
                           </p>
-
                         </div>
-
                       </td>
 
+                      {canViewFunds && (
+                        <td className="whitespace-nowrap px-5 py-5 text-sm font-semibold text-slate-800">
+                          {inr(worker.totalAllocated)}
+                        </td>
+                      )}
 
-                      {/* ALLOCATED */}
+                      {canViewExpenses && (
+                        <td className="whitespace-nowrap px-5 py-5 text-sm font-semibold text-amber-700">
+                          {inr(worker.pendingAmount)}
+                        </td>
+                      )}
 
-                      <td className="whitespace-nowrap px-5 py-5 text-sm font-semibold text-slate-800">
-                        {inr(worker.totalAllocated)}
-                      </td>
-
-
-                      {/* PENDING */}
-
-                      <td className="whitespace-nowrap px-5 py-5 text-sm font-semibold text-amber-700">
-                        {inr(worker.pendingAmount)}
-                      </td>
-
-
-                      {/* BALANCE */}
-
-                      <td className="whitespace-nowrap px-5 py-5 text-sm font-bold text-emerald-700">
-                        {inr(worker.availableBalance)}
-                      </td>
-
-
-                      {/* STATUS */}
+                      {canViewBalance && (
+                        <td className="whitespace-nowrap px-5 py-5 text-sm font-bold text-emerald-700">
+                          {inr(worker.availableBalance)}
+                        </td>
+                      )}
 
                       <td className="px-5 py-5">
-
                         <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
                           worker.isActive
                             ? 'bg-emerald-50 text-emerald-700'
@@ -616,32 +558,30 @@ export default function WorkersPage() {
                         }`}>
                           {worker.isActive ? 'Active' : 'Inactive'}
                         </span>
-
                       </td>
 
-
-                      {/* ACTIONS */}
-
                       <td className="px-5 py-5">
-
                         <div className="flex items-center justify-end gap-2">
+                          {canUpdate && (
+                            <button
+                              disabled={!!busyId}
+                              onClick={() => openEdit(worker)}
+                              className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
+                              title="Edit worker"
+                            >
+                              <Edit3 size={15} />
+                            </button>
+                          )}
 
-                          <button
-                            disabled={!!busyId}
-                            onClick={() => openEdit(worker)}
-                            className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
-                            title="Edit worker"
-                          >
-                            <Edit3 size={15} />
-                          </button>
-
-                          <button
-                            disabled={!!busyId}
-                            onClick={() => askStatusConfirmation(worker)}
-                            className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-                          >
-                            {worker.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
+                          {canDeactivate && (
+                            <button
+                              disabled={!!busyId}
+                              onClick={() => askStatusConfirmation(worker)}
+                              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                            >
+                              {worker.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                          )}
 
                           <Link
                             to={`/admin/workers/${worker.id}`}
@@ -650,43 +590,29 @@ export default function WorkersPage() {
                             <History size={14} />
                             History
                           </Link>
-
                         </div>
-
                       </td>
-
                     </tr>
-
                   ))}
-
                 </tbody>
-
               </table>
-
             </div>
-
 
             {/* MOBILE CARDS */}
 
             <div className="space-y-3 p-4 lg:hidden">
-
               {filteredWorkers.map(worker => (
-
                 <div
                   key={worker.id}
                   className="rounded-xl border border-slate-200 p-4"
                 >
-
                   <div className="flex items-start justify-between gap-3">
-
                     <div className="flex items-center gap-3">
-
                       <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 font-bold text-blue-700">
                         {worker.name.charAt(0).toUpperCase()}
                       </div>
 
                       <div>
-
                         <p className="font-semibold text-slate-800">
                           {worker.name}
                         </p>
@@ -694,9 +620,7 @@ export default function WorkersPage() {
                         <p className="mt-1 text-xs text-slate-500">
                           {worker.phone}
                         </p>
-
                       </div>
-
                     </div>
 
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -706,95 +630,92 @@ export default function WorkersPage() {
                     }`}>
                       {worker.isActive ? 'Active' : 'Inactive'}
                     </span>
-
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2">
+                  {(canViewFunds || canViewExpenses) && (
+                    <div className={`mt-4 grid gap-2 ${
+                      canViewFunds && canViewExpenses ? 'grid-cols-3' : 'grid-cols-2'
+                    }`}>
+                      {canViewFunds && (
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-500">Allocated</p>
+                          <p className="mt-1 text-xs font-bold">
+                            {inr(worker.totalAllocated)}
+                          </p>
+                        </div>
+                      )}
 
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-[10px] text-slate-500">Allocated</p>
-                      <p className="mt-1 text-xs font-bold">
-                        {inr(worker.totalAllocated)}
-                      </p>
+                      {canViewExpenses && (
+                        <div className="rounded-lg bg-amber-50 p-3">
+                          <p className="text-[10px] text-amber-700">Pending</p>
+                          <p className="mt-1 text-xs font-bold text-amber-800">
+                            {inr(worker.pendingAmount)}
+                          </p>
+                        </div>
+                      )}
+
+                      {canViewBalance && (
+                        <div className="rounded-lg bg-emerald-50 p-3">
+                          <p className="text-[10px] text-emerald-700">Balance</p>
+                          <p className="mt-1 text-xs font-bold text-emerald-800">
+                            {inr(worker.availableBalance)}
+                          </p>
+                        </div>
+                      )}
                     </div>
+                  )}
 
-                    <div className="rounded-lg bg-amber-50 p-3">
-                      <p className="text-[10px] text-amber-700">Pending</p>
-                      <p className="mt-1 text-xs font-bold text-amber-800">
-                        {inr(worker.pendingAmount)}
-                      </p>
-                    </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {canUpdate && (
+                      <button
+                        onClick={() => openEdit(worker)}
+                        disabled={!!busyId}
+                        className="flex-1 rounded-lg border p-2 text-xs font-semibold"
+                      >
+                        Edit
+                      </button>
+                    )}
 
-                    <div className="rounded-lg bg-emerald-50 p-3">
-                      <p className="text-[10px] text-emerald-700">Balance</p>
-                      <p className="mt-1 text-xs font-bold text-emerald-800">
-                        {inr(worker.availableBalance)}
-                      </p>
-                    </div>
-
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-
-                    <button
-                      onClick={() => openEdit(worker)}
-                      disabled={!!busyId}
-                      className="rounded-lg border p-2 text-xs font-semibold"
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      onClick={() => askStatusConfirmation(worker)}
-                      disabled={!!busyId}
-                      className="rounded-lg bg-slate-100 p-2 text-xs font-semibold"
-                    >
-                      {worker.isActive ? 'Deactivate' : 'Activate'}
-                    </button>
+                    {canDeactivate && (
+                      <button
+                        onClick={() => askStatusConfirmation(worker)}
+                        disabled={!!busyId}
+                        className="flex-1 rounded-lg bg-slate-100 p-2 text-xs font-semibold"
+                      >
+                        {worker.isActive ? 'Deactivate' : 'Activate'}
+                      </button>
+                    )}
 
                     <Link
                       to={`/admin/workers/${worker.id}`}
-                      className="rounded-lg bg-blue-600 p-2 text-center text-xs font-semibold text-white"
+                      className="flex-1 rounded-lg bg-blue-600 p-2 text-center text-xs font-semibold text-white"
                     >
                       History
                     </Link>
-
                   </div>
-
                 </div>
-
               ))}
-
             </div>
-
           </>
-
         )}
 
         <div className="border-t border-slate-100 bg-slate-50 px-6 py-3 text-xs text-slate-500">
           Showing {filteredWorkers.length} of {workers.length} workers
         </div>
-
       </section>
-
 
       {/* ADD / EDIT WORKER MODAL */}
 
       {modalOpen && (
-
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
           onMouseDown={e => {
             if (e.target === e.currentTarget) closeModal();
           }}
         >
-
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
-
             <div className="flex items-center justify-between border-b p-6">
-
               <div>
-
                 <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
                   Workforce Management
                 </p>
@@ -802,7 +723,6 @@ export default function WorkersPage() {
                 <h2 className="mt-1 text-xl font-bold text-slate-900">
                   {editing ? 'Edit Worker' : 'Add New Worker'}
                 </h2>
-
               </div>
 
               <button
@@ -812,18 +732,14 @@ export default function WorkersPage() {
               >
                 <X size={20} />
               </button>
-
             </div>
-
 
             <form
               onSubmit={saveWorker}
               noValidate
               className="space-y-5 p-6"
             >
-
               <div>
-
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Full Name *
                 </label>
@@ -837,12 +753,9 @@ export default function WorkersPage() {
                   placeholder="Enter worker name"
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                 />
-
               </div>
 
-
               <div>
-
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Phone Number *
                 </label>
@@ -861,12 +774,9 @@ export default function WorkersPage() {
                   placeholder="10-digit mobile number"
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                 />
-
               </div>
 
-
               <div>
-
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Email Address
                 </label>
@@ -880,19 +790,13 @@ export default function WorkersPage() {
                   placeholder="worker@example.com"
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                 />
-
               </div>
 
-
               <div>
-
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-
                   {editing
                     ? 'New Password (Optional)'
-                    : 'Password *'
-                  }
-
+                    : 'Password *'}
                 </label>
 
                 <input
@@ -908,21 +812,15 @@ export default function WorkersPage() {
                   }
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
                 />
-
               </div>
 
-
               {formError && (
-
                 <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">
                   {formError}
                 </div>
-
               )}
 
-
               <div className="flex justify-end gap-3 border-t pt-5">
-
                 <button
                   type="button"
                   onClick={closeModal}
@@ -937,33 +835,23 @@ export default function WorkersPage() {
                   disabled={saving}
                   className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-
                   <Check size={16} />
 
                   {saving
                     ? 'Saving...'
                     : editing
                       ? 'Save Changes'
-                      : 'Create Worker'
-                  }
-
+                      : 'Create Worker'}
                 </button>
-
               </div>
-
             </form>
-
           </div>
-
         </div>
-
       )}
 
-
-      {/* DASHBOARD CONFIRMATION */}
+      {/* STATUS CONFIRMATION */}
 
       {confirmAction && (
-
         <div
           className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-950/40 px-4 pt-8 backdrop-blur-sm"
           onMouseDown={e => {
@@ -972,43 +860,30 @@ export default function WorkersPage() {
             }
           }}
         >
-
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
-
             <div className="flex items-start gap-4">
-
               <div className={`rounded-xl p-3 ${
                 confirmAction.action === 'deactivate'
                   ? 'bg-amber-50 text-amber-600'
                   : 'bg-emerald-50 text-emerald-600'
               }`}>
-
                 {confirmAction.action === 'deactivate'
                   ? <UserX size={24} />
-                  : <UserCheck size={24} />
-                }
-
+                  : <UserCheck size={24} />}
               </div>
 
               <div className="flex-1">
-
                 <h3 className="text-lg font-bold text-slate-900">
                   {confirmAction.action === 'deactivate'
                     ? 'Deactivate Worker?'
-                    : 'Activate Worker?'
-                  }
+                    : 'Activate Worker?'}
                 </h3>
 
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-
                   Are you sure you want to{' '}
-
                   <strong>{confirmAction.action}</strong>{' '}
-
                   <strong>{confirmAction.worker.name}</strong>?
-
                 </p>
-
               </div>
 
               <button
@@ -1018,24 +893,19 @@ export default function WorkersPage() {
               >
                 <X size={19} />
               </button>
-
             </div>
 
             <div className="mt-4 flex gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-
               <AlertTriangle size={17} className="shrink-0" />
 
               <span>
                 {confirmAction.action === 'deactivate'
                   ? 'This worker will no longer be able to access the worker dashboard.'
-                  : 'This worker will regain access to the worker dashboard.'
-                }
+                  : 'This worker will regain access to the worker dashboard.'}
               </span>
-
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
-
               <button
                 onClick={() => setConfirmAction(null)}
                 disabled={!!busyId}
@@ -1053,24 +923,16 @@ export default function WorkersPage() {
                     : 'bg-emerald-600 hover:bg-emerald-700'
                 }`}
               >
-
                 {busyId
                   ? 'Processing...'
                   : confirmAction.action === 'deactivate'
                     ? 'Yes, Deactivate'
-                    : 'Yes, Activate'
-                }
-
+                    : 'Yes, Activate'}
               </button>
-
             </div>
-
           </div>
-
         </div>
-
       )}
-
     </div>
   );
 }
