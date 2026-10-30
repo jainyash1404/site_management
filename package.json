@@ -1,0 +1,13 @@
+{
+  "name": "construction-manager",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm --prefix server install && npm --prefix client install",
+    "seed": "npm --prefix server run seed",
+    "reset-admin": "npm --prefix server run reset-admin",
+    "dev": "concurrently -n api,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "test": "npm --prefix server test"
+  },
+  "devDependencies": { "concurrently": "^9.0.0" }
+}
