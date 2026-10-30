@@ -208,14 +208,40 @@ r.post(
     );
 
     // VALIDATE ACTIVE SITE
-    if (
-      !(await Site.exists({
-        _id: idParam(b.siteId),
-        isActive: true,
-      }))
-    ) {
-      throw new HttpError(400, 'Select an active site');
-    }
+    // VALIDATE ASSIGNED ACTIVE SITE
+const worker = await User.findById(me(req).id)
+  .select('assignedSites')
+  .lean();
+
+if (!worker) {
+  throw new HttpError(404, 'Worker not found');
+}
+
+const selectedSiteId = idParam(b.siteId);
+
+const isAssigned = (worker.assignedSites ?? []).some(
+  siteId => String(siteId) === String(selectedSiteId)
+);
+
+if (!isAssigned) {
+  throw new HttpError(
+    403,
+    'You are not assigned to this site.',
+  );
+}
+
+const siteExists = await Site.exists({
+  _id: selectedSiteId,
+  isActive: true,
+  isCompleted: false,
+});
+
+if (!siteExists) {
+  throw new HttpError(
+    400,
+    'Selected site is inactive or completed.',
+  );
+}
 
     // FIND ACTIVE CATEGORY
     const categoryDoc = await Category.findOne({

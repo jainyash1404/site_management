@@ -43,6 +43,7 @@ export interface Worker extends AuthUser {
   isActive: boolean;
   pendingApproval?: boolean;
   resetRequested?: boolean;
+  assignedSites?: string[];
 }
 
 export interface Admin extends AuthUser {

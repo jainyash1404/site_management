@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
-import { User, audit } from '../models.js';
+import { User, Site, audit } from '../models.js';
 
 import {
   HttpError,
@@ -22,6 +22,7 @@ const r = Router();
 
 r.use(auth, role('ADMIN'));
 
+
 const phone = z.string().regex(
   /^\d{10}$/,
   'Enter a 10-digit phone number',
@@ -35,6 +36,12 @@ const email = z.union([
 const password = z.string()
   .min(6, 'Password must be at least 6 characters')
   .max(100);
+
+const assignedSitesSchema = z.object({
+  assignedSites: z.array(
+    z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid site ID')
+  ),
+});
 
 const findWorker = async (id: unknown) => {
   const u = await User.findOne({
@@ -199,6 +206,54 @@ r.patch(
         fields: Object.keys(b).filter(k => k !== 'password'),
         passwordChanged: !!b.password,
       },
+    );
+
+    res.json({
+      data: userOut(u),
+    });
+  },
+);
+
+// ASSIGN SITES TO WORKER
+r.patch(
+  '/:id/sites',
+  requirePermission('workers.update'),
+  async (req, res) => {
+    const { assignedSites } = parse(
+      assignedSitesSchema,
+      req.body,
+    );
+
+    const u = await findWorker(req.params.id);
+
+    // Remove duplicate IDs
+    const uniqueSiteIds = [...new Set(assignedSites)];
+
+    // Validate that all selected sites exist and are active
+      
+    const sites = await Site.find({
+      _id: { $in: uniqueSiteIds },
+      isActive: true,
+      isCompleted: false,
+    }).select('_id');
+
+    if (sites.length !== uniqueSiteIds.length) {
+      throw new HttpError(
+        400,
+        'One or more selected sites are invalid, inactive, or completed.',
+      );
+    }
+
+    u.assignedSites = uniqueSiteIds as any;
+
+    await u.save();
+
+    audit(
+      me(req).id,
+      'WORKER_SITES_ASSIGNED',
+      'User',
+      u.id,
+      { assignedSites: uniqueSiteIds },
     );
 
     res.json({

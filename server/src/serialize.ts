@@ -1,9 +1,10 @@
 import { receiptUrl } from './storage.js';
 import type { Stats } from './stats.js';
 
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export const userOut = (u: any, s?: Stats) => ({
+export const userOut = (u: any, s?: Partial<Stats>) => ({
   id: String(u._id ?? u.id),
   name: u.name,
   phone: u.phone,
@@ -14,6 +15,9 @@ export const userOut = (u: any, s?: Stats) => ({
   permissions: u.role === 'ADMIN' ? (u.permissions ?? []) : [],
 
   isActive: u.isActive,
+  assignedSites: (u.assignedSites ?? []).map(
+  (site: any) => String(site?._id ?? site)
+),
   pendingApproval: !!u.pendingApproval,
   resetRequested: !!u.resetRequestedAt,
 

@@ -58,7 +58,7 @@ r.get('/', async (_req, res) => {
     .lean();
 
   res.json({
-    data: admins.map(userOut),
+    data: admins.map(admin => userOut(admin)),
   });
 });
 

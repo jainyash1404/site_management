@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { Expense, Fund, Site, audit } from '../models.js';
-
+import { Expense, Fund, Site, User, audit } from '../models.js';
 import {
   HttpError,
   auth,
@@ -48,14 +47,21 @@ r.get(
     return requirePermission('sites.view')(req, res, next);
   },
   async (req, res) => {
-    const sites = await Site.find(
-      me(req).role === 'ADMIN'
-        ? {}
-        : {
-            isActive: true,
-            isCompleted: false,
-          }
-    )
+    let filter: any = {};
+
+    if (me(req).role === 'WORKER') {
+      const worker = await User.findById(me(req).id)
+        .select('assignedSites')
+        .lean();
+
+      filter = {
+        _id: { $in: worker?.assignedSites ?? [] },
+        isActive: true,
+        isCompleted: false,
+      };
+    }
+
+    const sites = await Site.find(filter)
       .sort({ name: 1 })
       .lean();
 

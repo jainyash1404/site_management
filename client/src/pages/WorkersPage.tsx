@@ -18,6 +18,8 @@ import {
   ShieldCheck,
   RefreshCw,
   UserRound,
+  Building2,
+  CheckCircle2,
 } from 'lucide-react';
 
 import { E, errMsg, list, send } from '../api';
@@ -25,7 +27,7 @@ import { useApi } from '../hooks/useApi';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { inr } from '../lib/format';
-import type { Worker } from '../types';
+import type { Worker, Site } from '../types';
 
 type Filter = 'all' | 'active' | 'inactive';
 
@@ -80,7 +82,20 @@ export default function WorkersPage() {
     [],
   );
 
+  const {
+    data: sitesData,
+    loading: sitesLoading,
+    reload: reloadSites,
+  } = useApi(
+    () => list<Site>(E.sites),
+    [],
+  );
+
   const workers = data?.items ?? [];
+
+  const sites = (sitesData?.items ?? []).filter(
+    site => site.isActive && !site.isCompleted,
+  );
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -96,6 +111,15 @@ export default function WorkersPage() {
 
   const [confirmAction, setConfirmAction] =
     useState<ConfirmAction | null>(null);
+
+  // SITE ASSIGNMENT
+  const [assigningWorker, setAssigningWorker] =
+    useState<Worker | null>(null);
+
+  const [selectedSites, setSelectedSites] =
+    useState<string[]>([]);
+
+  const [assignSaving, setAssignSaving] = useState(false);
 
   const activeWorkers = workers.filter(w => w.isActive);
   const inactiveWorkers = workers.filter(w => !w.isActive);
@@ -226,6 +250,56 @@ export default function WorkersPage() {
       setFormError(errMsg(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // OPEN SITE ASSIGNMENT
+  const openAssignSites = (worker: Worker) => {
+    if (!canUpdate) return;
+
+    setAssigningWorker(worker);
+
+    setSelectedSites(
+      worker.assignedSites ?? [],
+    );
+
+    reloadSites();
+  };
+
+  // SELECT / DESELECT SITE
+  const toggleSite = (siteId: string) => {
+    setSelectedSites(prev =>
+      prev.includes(siteId)
+        ? prev.filter(id => id !== siteId)
+        : [...prev, siteId],
+    );
+  };
+
+  // SAVE SITE ASSIGNMENT
+  const saveAssignedSites = async () => {
+    if (!assigningWorker || assignSaving) return;
+
+    setAssignSaving(true);
+
+    try {
+      await send(
+        'patch',
+        E.assignWorkerSites(assigningWorker.id),
+        {
+          assignedSites: selectedSites,
+        },
+      );
+
+      toast('Sites assigned successfully');
+
+      setAssigningWorker(null);
+      setSelectedSites([]);
+
+      reload();
+    } catch (err) {
+      toast(errMsg(err), 'err');
+    } finally {
+      setAssignSaving(false);
     }
   };
 
@@ -562,6 +636,18 @@ export default function WorkersPage() {
 
                       <td className="px-5 py-5">
                         <div className="flex items-center justify-end gap-2">
+
+                          {canUpdate && (
+                            <button
+                              disabled={!!busyId}
+                              onClick={() => openAssignSites(worker)}
+                              className="flex items-center gap-1 rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                            >
+                              <Building2 size={14} />
+                              Assign Sites
+                            </button>
+                          )}
+
                           {canUpdate && (
                             <button
                               disabled={!!busyId}
@@ -666,6 +752,17 @@ export default function WorkersPage() {
                   )}
 
                   <div className="mt-4 flex flex-wrap gap-2">
+
+                    {canUpdate && (
+                      <button
+                        onClick={() => openAssignSites(worker)}
+                        disabled={!!busyId}
+                        className="flex-1 rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs font-semibold text-blue-700"
+                      >
+                        Assign Sites
+                      </button>
+                    )}
+
                     {canUpdate && (
                       <button
                         onClick={() => openEdit(worker)}
@@ -849,6 +946,129 @@ export default function WorkersPage() {
         </div>
       )}
 
+      {/* ASSIGN SITES MODAL */}
+
+      {assigningWorker && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+          onMouseDown={e => {
+            if (
+              e.target === e.currentTarget &&
+              !assignSaving
+            ) {
+              setAssigningWorker(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+            <div className="flex items-center justify-between border-b p-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
+                  Workforce Management
+                </p>
+
+                <h2 className="mt-1 text-xl font-bold text-slate-900">
+                  Assign Sites
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Select sites for {assigningWorker.name}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setAssigningWorker(null)}
+                disabled={assignSaving}
+                className="rounded-lg p-2 hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] space-y-3 overflow-y-auto p-6">
+
+              {sitesLoading ? (
+                <p className="py-8 text-center text-sm text-slate-500">
+                  Loading sites...
+                </p>
+              ) : sites.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-500">
+                  No active sites available.
+                </p>
+              ) : (
+                sites.map(site => {
+                  const checked = selectedSites.includes(site.id);
+
+                  return (
+                    <label
+                      key={site.id}
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 transition ${
+                        checked
+                          ? 'border-blue-400 bg-blue-50'
+                          : 'border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSite(site.id)}
+                        disabled={assignSaving}
+                        className="h-4 w-4 accent-blue-600"
+                      />
+
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-slate-800">
+                          {site.name}
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          {site.address || 'Address not available'}
+                        </p>
+                      </div>
+
+                      {checked && (
+                        <CheckCircle2
+                          size={19}
+                          className="text-blue-600"
+                        />
+                      )}
+                    </label>
+                  );
+                })
+              )}
+
+            </div>
+
+            <div className="flex items-center justify-between border-t bg-slate-50 p-5">
+
+              <p className="text-xs font-medium text-slate-500">
+                {selectedSites.length} site(s) selected
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setAssigningWorker(null)}
+                  disabled={assignSaving}
+                  className="rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-slate-600"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={saveAssignedSites}
+                  disabled={assignSaving || sitesLoading}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {assignSaving ? 'Saving...' : 'Save Assignment'}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* STATUS CONFIRMATION */}
 
       {confirmAction && (
@@ -933,6 +1153,7 @@ export default function WorkersPage() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

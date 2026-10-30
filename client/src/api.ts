@@ -18,6 +18,8 @@ export const E = {
   reset: '/auth/reset-password',
 
   workers: '/workers',
+  assignWorkerSites: (id: string) =>
+  `/workers/${id}/sites`,
   sites: '/sites',
   funds: '/funds',
 

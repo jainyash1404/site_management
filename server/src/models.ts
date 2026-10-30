@@ -99,6 +99,15 @@ export const User = model('User', new Schema({
     default: true,
   },
 
+    // Construction sites assigned to this worker
+  assignedSites: {
+    type: [{
+      type: Schema.Types.ObjectId,
+      ref: 'Site',
+    }],
+    default: [],
+  },
+
   pendingApproval: {
     type: Boolean,
     default: false,
