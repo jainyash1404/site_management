@@ -972,7 +972,7 @@ export default function WorkerDashboard() {
                             expenses.length
                               ? Math.min(
                                   100,
-                                  (item.count / expenses.length) * 100,
+                                  (Number(item.count) / expenses.length) * 100,
                                 )
                               : 0
                           }%`,

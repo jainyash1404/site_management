@@ -135,11 +135,12 @@ export default function AdminDashboard() {
     (w) => w.pendingApproval
   );
 
-  const totalAllocated = num(fundSummary.totalAllocated);
-  const pendingCount = num(expenseSummary.pendingCount);
-  const approvedAmount = num(expenseSummary.approvedAmount);
-  const rejectedCount = num(expenseSummary.rejectedCount);
-  const totalAmount = num(expenseSummary.totalAmount);
+  const totalAllocated = Number(fundSummary.totalAllocated) || 0;
+const pendingCount = Number(expenseSummary.pendingCount) || 0;
+const approvedAmount = Number(expenseSummary.approvedAmount) || 0;
+const rejectedCount = Number(expenseSummary.rejectedCount) || 0;
+const totalAmount = Number(expenseSummary.totalAmount) || 0;
+const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
 
   const stats = [
     ...(canWorkers
@@ -291,10 +292,10 @@ export default function AdminDashboard() {
           label: 'Pending Expenses',
           value: num(pendingCount),
           color: 'bg-amber-500',
-          percentage: num(expenseSummary.totalCount) > 0
+          percentage: totalExpenseCount > 0
             ? Math.min(
                 100,
-                (pendingCount / num(expenseSummary.totalCount)) * 100
+                (pendingCount / totalExpenseCount) * 100
               )
             : 0,
         }]

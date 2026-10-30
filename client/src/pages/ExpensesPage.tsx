@@ -128,7 +128,7 @@ export default function ExpensesPage() {
               Object.entries(f).filter(([, v]) => v)
             )
           )
-        : Promise.resolve({ items: [] }),
+        : Promise.resolve({ items: [], summary: {} }),
 
     [JSON.stringify(f), canViewExpenses]
   );
