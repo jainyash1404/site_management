@@ -62,14 +62,16 @@ const permissionGroups: {
     ],
   },
   {
-    title: 'Expenses',
-    description: 'Manage worker expenses',
-    permissions: [
-      { key: 'expenses.view', label: 'View Expenses' },
-      { key: 'expenses.approve', label: 'Approve Expenses' },
-      { key: 'expenses.reject', label: 'Reject Expenses' },
-    ],
-  },
+  title: 'Expenses',
+  description: 'Manage worker and admin expenses',
+  permissions: [
+    { key: 'expenses.view', label: 'View Expenses' },
+    { key: 'expenses.approve', label: 'Approve Expenses' },
+    { key: 'expenses.reject', label: 'Reject Expenses' },
+    { key: 'expenses.create.own', label: 'Add My Expense' },
+    { key: 'expenses.create.forWorker', label: 'Add Expense for Worker' },
+  ],
+},
   {
     title: 'Categories',
     description: 'Manage expense categories',

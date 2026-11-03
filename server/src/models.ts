@@ -1,7 +1,6 @@
 import { Schema, model, Types } from 'mongoose';
 
-// Money is stored as integer paise (₹1 = 100 paise)
-// and converted to rupees only in API responses.
+// Money is stored as integer paise
 const paise = {
   type: Number,
   required: true,
@@ -31,7 +30,7 @@ export const ADMIN_PERMISSIONS = [
   'sites.update',
   'sites.deactivate',
   'sites.complete',
-'sites.delete',
+  'sites.delete',
 
   'funds.view',
   'funds.allocate',
@@ -39,13 +38,15 @@ export const ADMIN_PERMISSIONS = [
   'expenses.view',
   'expenses.approve',
   'expenses.reject',
+  'expenses.create.own',
+  'expenses.create.forWorker',
 
   'categories.view',
   'categories.create',
   'categories.update',
   'categories.deactivate',
   'categories.delete',
-'categories.subcategories',
+  'categories.subcategories',
 ] as const;
 
 export type AdminPermission = typeof ADMIN_PERMISSIONS[number];
@@ -81,13 +82,11 @@ export const User = model('User', new Schema({
     required: true,
   },
 
-  // Super Admin has complete access
   isSuperAdmin: {
     type: Boolean,
     default: false,
   },
 
-  // Individual permissions for normal admins
   permissions: {
     type: [String],
     enum: [...ADMIN_PERMISSIONS],
@@ -99,7 +98,6 @@ export const User = model('User', new Schema({
     default: true,
   },
 
-    // Construction sites assigned to this worker
   assignedSites: {
     type: [{
       type: Schema.Types.ObjectId,
@@ -187,8 +185,7 @@ export const Category = model('Category', new Schema({
   },
 }));
 
-// Append-only ledger of money given to workers.
-// There are no update/delete routes.
+// Fund Model
 export const Fund = model('Fund', new Schema({
   workerId: {
     ...ref('User'),
@@ -220,17 +217,40 @@ export const Fund = model('Fund', new Schema({
 }));
 
 // Expense Model
-// Expense Model
 export const Expense = model('Expense', new Schema({
+
+  // Person whose account receives the expense
+  // Worker expense = worker ID
+  // Admin personal expense = admin ID
   workerId: {
     ...ref('User'),
     index: true,
+  },
+
+  // Actual person who entered the expense
+  // For admin-added worker expense, this is the admin
+  // For worker self-submission, this is the worker
+  addedBy: {
+    ...ref('User'),
+    index: true,
+  },
+
+  addedByRole: {
+    type: String,
+    enum: ['ADMIN', 'WORKER'],
   },
 
   siteId: {
     ...ref('Site'),
     index: true,
   },
+
+  // Actual date on which the expense happened
+    expenseDate: {
+      type: Date,
+      required: true,
+      index: true,
+    },
 
   category: {
     type: String,
@@ -256,7 +276,12 @@ export const Expense = model('Expense', new Schema({
 
   status: {
     type: String,
-    enum: ['PENDING', 'APPROVED', 'REJECTED'],
+    enum: [
+      'PENDING',
+      'APPROVED',
+      'REJECTED',
+      'RECORDED',
+    ],
     default: 'PENDING',
     index: true,
   },
@@ -269,10 +294,8 @@ export const Expense = model('Expense', new Schema({
   reviewedBy: ref('User', false),
   reviewedAt: Date,
 
-  // Backward compatibility with existing expenses
   receiptKey: String,
 
-  // Supports up to 5 receipt images
   receiptKeys: {
     type: [String],
     default: [],

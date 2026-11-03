@@ -1,6 +1,4 @@
 import { Link } from 'react-router-dom';
-import { useMemo } from 'react';
-
 import {
   ArrowRight,
   Banknote,
@@ -18,6 +16,7 @@ import {
   CalendarDays,
   AlertCircle,
   FolderTree,
+  Plus,
 } from 'lucide-react';
 
 import { E, list } from '../api';
@@ -68,25 +67,7 @@ export default function AdminDashboard() {
   const canApproveExpenses = can('expenses.approve');
   const canRejectExpenses = can('expenses.reject');
 
-  const canManageWorkers = can('workers.create') ||
-    can('workers.update') ||
-    can('workers.deactivate');
-
-  const canManageSites = can('sites.create') ||
-    can('sites.update') ||
-    can('sites.deactivate') ||
-    can('sites.complete');
-
-  const canAllocateFunds = can('funds.allocate');
-
-  const canManageCategories =
-    can('categories.view') &&
-    (
-      can('categories.create') ||
-      can('categories.update') ||
-      can('categories.deactivate') ||
-      can('categories.subcategories')
-    );
+  const canManageCategories = can('categories.view');
 
   const {
     data,
@@ -111,7 +92,6 @@ export default function AdminDashboard() {
         canExpenses
           ? list<Expense>(E.expenses, {
               limit: 5,
-              sort: '-createdAt',
             })
           : Promise.resolve(emptyResult<Expense>()),
       ]);
@@ -128,138 +108,130 @@ export default function AdminDashboard() {
   const expenseSummary = data?.x.summary ?? {};
   const fundSummary = data?.f.summary ?? {};
 
-  const activeWorkers = workers.filter((w) => w.isActive);
-  const activeSites = sites.filter((s) => s.isActive);
+  const activeWorkers = workers.filter(w => w.isActive);
+  const activeSites = sites.filter(s => s.isActive);
 
   const pendingWorkers = workers.filter(
-    (w) => w.pendingApproval
+    w => w.pendingApproval
   );
 
-  const totalAllocated = Number(fundSummary.totalAllocated) || 0;
-const pendingCount = Number(expenseSummary.pendingCount) || 0;
-const approvedAmount = Number(expenseSummary.approvedAmount) || 0;
-const rejectedCount = Number(expenseSummary.rejectedCount) || 0;
-const totalAmount = Number(expenseSummary.totalAmount) || 0;
-const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
+  const totalAllocated =
+    Number(fundSummary.totalAllocated) || 0;
+
+  const pendingCount =
+    Number(expenseSummary.pendingCount) || 0;
+
+  const approvedAmount =
+    Number(expenseSummary.approvedAmount) || 0;
+
+  const rejectedCount =
+    Number(expenseSummary.rejectedCount) || 0;
+
+  const totalAmount =
+    Number(expenseSummary.totalAmount) || 0;
+
+  const recordedAmount =
+    Number(expenseSummary.recordedAmount) || 0;
+
+  const totalExpenseCount =
+    Number(expenseSummary.totalCount) || expenses.length;
 
   const stats = [
-    ...(canWorkers
-      ? [{
-          title: 'Total Workers',
-          value: num(workers.length),
-          description: `${activeWorkers.length} currently active`,
-          icon: Users,
-          color: 'bg-blue-50 text-blue-600',
-        }]
-      : []),
+    ...(canWorkers ? [{
+      title: 'Total Workers',
+      value: num(workers.length),
+      description: `${activeWorkers.length} currently active`,
+      icon: Users,
+      color: 'bg-blue-50 text-blue-600',
+    }] : []),
 
-    ...(canSites
-      ? [{
-          title: 'Active Sites',
-          value: num(activeSites.length),
-          description: 'Currently operational',
-          icon: MapPin,
-          color: 'bg-violet-50 text-violet-600',
-        }]
-      : []),
+    ...(canSites ? [{
+      title: 'Active Sites',
+      value: num(activeSites.length),
+      description: 'Currently operational',
+      icon: MapPin,
+      color: 'bg-violet-50 text-violet-600',
+    }] : []),
 
-    ...(canFunds
-      ? [{
-          title: 'Total Funds Allocated',
-          value: inr(totalAllocated),
-          description: 'Total distributed funds',
-          icon: Wallet,
-          color: 'bg-emerald-50 text-emerald-600',
-        }]
-      : []),
+    ...(canFunds ? [{
+      title: 'Total Funds Allocated',
+      value: inr(totalAllocated),
+      description: 'Total distributed funds',
+      icon: Wallet,
+      color: 'bg-emerald-50 text-emerald-600',
+    }] : []),
 
-    ...(canExpenses
-      ? [
-          {
-            title: 'Total Expenses',
-            value: inr(totalAmount),
-            description: 'All submitted expenses',
-            icon: Receipt,
-            color: 'bg-orange-50 text-orange-600',
-          },
-          {
-            title: 'Pending Expenses',
-            value: num(pendingCount),
-            description: 'Awaiting review',
-            icon: Clock,
-            color: 'bg-amber-50 text-amber-600',
-          },
-          {
-            title: 'Approved Expenses',
-            value: inr(approvedAmount),
-            description: 'Successfully approved',
-            icon: CheckCircle2,
-            color: 'bg-emerald-50 text-emerald-600',
-          },
-          {
-            title: 'Rejected Expenses',
-            value: num(rejectedCount),
-            description: 'Rejected submissions',
-            icon: XCircle,
-            color: 'bg-red-50 text-red-600',
-          },
-        ]
-      : []),
+    ...(canExpenses ? [
+      {
+        title: 'Total Expenses',
+        value: inr(totalAmount),
+        description: 'All recorded expenses',
+        icon: Receipt,
+        color: 'bg-orange-50 text-orange-600',
+      },
+      {
+        title: 'Pending Expenses',
+        value: num(pendingCount),
+        description: 'Awaiting review',
+        icon: Clock,
+        color: 'bg-amber-50 text-amber-600',
+      },
+      {
+        title: 'Approved Expenses',
+        value: inr(approvedAmount),
+        description: 'Successfully approved',
+        icon: CheckCircle2,
+        color: 'bg-emerald-50 text-emerald-600',
+      },
+      {
+        title: 'Rejected Expenses',
+        value: num(rejectedCount),
+        description: 'Rejected submissions',
+        icon: XCircle,
+        color: 'bg-red-50 text-red-600',
+      },
+    ] : []),
   ];
 
   const quickActions = [
-    ...(canWorkers
-      ? [{
-          to: '/admin/workers',
-          label: 'Workers',
-          description: 'Manage workforce',
-          icon: Users,
-        }]
-      : []),
+    ...(canWorkers ? [{
+      to: '/admin/workers',
+      label: 'Workers',
+      description: 'Manage workforce',
+      icon: Users,
+    }] : []),
 
-    ...(canSites
-      ? [{
-          to: '/admin/sites',
-          label: 'Sites',
-          description: 'Manage projects',
-          icon: Building2,
-        }]
-      : []),
+    ...(canSites ? [{
+      to: '/admin/sites',
+      label: 'Sites',
+      description: 'Manage projects',
+      icon: Building2,
+    }] : []),
 
-    ...(canFunds
-      ? [{
-          to: '/admin/funds',
-          label: 'Funds',
-          description: 'View allocated funds',
-          icon: Wallet,
-        }]
-      : []),
+    ...(canFunds ? [{
+      to: '/admin/funds',
+      label: 'Funds',
+      description: 'View allocated funds',
+      icon: Wallet,
+    }] : []),
 
-    ...(canExpenses
-      ? [{
-          to: '/admin/expenses',
-          label: 'Expenses',
-          description: 'Review expenses',
-          icon: Receipt,
-        }]
-      : []),
+    ...(canExpenses ? [{
+      to: '/admin/expenses',
+      label: 'Expenses',
+      description: 'View all expenses',
+      icon: Receipt,
+    }] : []),
 
-    ...(can('categories.view')
-      ? [{
-          to: '/admin/categories',
-          label: 'Categories',
-          description: 'View categories',
-          icon: FolderTree,
-        }]
-      : []),
+    ...(canManageCategories ? [{
+      to: '/admin/categories',
+      label: 'Categories',
+      description: 'Manage categories',
+      icon: FolderTree,
+    }] : []),
   ];
 
-  const hasOperationalData =
-    canWorkers || canSites || canExpenses;
-
   const showPendingWorkerAlert =
-    canWorkers &&
-    pendingWorkers.length > 0;
+    canWorkers && pendingWorkers.length > 0;
 
   const showPendingExpenseAlert =
     canExpenses &&
@@ -267,96 +239,80 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
     (canApproveExpenses || canRejectExpenses);
 
   const financialItems = [
-    ...(canFunds
-      ? [{
-          label: 'Funds Allocated',
-          value: inr(totalAllocated),
-          color: 'bg-blue-600',
-          percentage: 100,
-        }]
-      : []),
+    ...(canFunds ? [{
+      label: 'Funds Allocated',
+      value: inr(totalAllocated),
+      percentage: 100,
+      color: 'bg-blue-600',
+    }] : []),
 
-    ...(canExpenses
-      ? [{
-          label: 'Approved Expenses',
-          value: inr(approvedAmount),
-          color: 'bg-emerald-500',
-          percentage: canFunds && totalAllocated > 0
-            ? Math.min(100, (approvedAmount / totalAllocated) * 100)
-            : 100,
-        }]
-      : []),
+    ...(canExpenses ? [{
+      label: 'Approved Expenses',
+      value: inr(approvedAmount),
+      percentage: totalAllocated > 0
+        ? Math.min(100, approvedAmount / totalAllocated * 100)
+        : 0,
+      color: 'bg-emerald-500',
+    }] : []),
 
-    ...(canExpenses
-      ? [{
-          label: 'Pending Expenses',
-          value: num(pendingCount),
-          color: 'bg-amber-500',
-          percentage: totalExpenseCount > 0
-            ? Math.min(
-                100,
-                (pendingCount / totalExpenseCount) * 100
-              )
-            : 0,
-        }]
-      : []),
+    ...(canExpenses ? [{
+      label: 'Recorded Expenses',
+      value: inr(recordedAmount),
+      percentage: totalAllocated > 0
+        ? Math.min(100, recordedAmount / totalAllocated * 100)
+        : 0,
+      color: 'bg-blue-500',
+    }] : []),
+
+    ...(canExpenses ? [{
+      label: 'Pending Expenses',
+      value: num(pendingCount),
+      percentage: totalExpenseCount > 0
+        ? Math.min(100, pendingCount / totalExpenseCount * 100)
+        : 0,
+      color: 'bg-amber-500',
+    }] : []),
   ];
 
   const operationalItems = [
-    ...(canWorkers
-      ? [{
-          label: 'Active Workers',
-          value: activeWorkers.length,
-          icon: Users,
-          color: 'text-blue-600',
-        }]
-      : []),
+    ...(canWorkers ? [{
+      label: 'Active Workers',
+      value: activeWorkers.length,
+      icon: Users,
+      color: 'text-blue-600',
+    }] : []),
 
-    ...(canSites
-      ? [{
-          label: 'Active Sites',
-          value: activeSites.length,
-          icon: Building2,
-          color: 'text-violet-600',
-        }]
-      : []),
+    ...(canSites ? [{
+      label: 'Active Sites',
+      value: activeSites.length,
+      icon: Building2,
+      color: 'text-violet-600',
+    }] : []),
 
-    ...(canWorkers
-      ? [{
-          label: 'Pending Worker Requests',
-          value: pendingWorkers.length,
-          icon: Clock,
-          color: 'text-amber-600',
-        }]
-      : []),
+    ...(canWorkers ? [{
+      label: 'Pending Worker Requests',
+      value: pendingWorkers.length,
+      icon: Clock,
+      color: 'text-amber-600',
+    }] : []),
 
-    ...(canExpenses
-      ? [{
-          label: 'Rejected Expenses',
-          value: rejectedCount,
-          icon: XCircle,
-          color: 'text-red-600',
-        }]
-      : []),
+    ...(canExpenses ? [{
+      label: 'Rejected Expenses',
+      value: rejectedCount,
+      icon: XCircle,
+      color: 'text-red-600',
+    }] : []),
   ];
-
-  const hasFinancialData = financialItems.length > 0;
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-7 pb-10">
-
-      <Async
-        loading={loading}
-        error={error}
-        onRetry={reload}
-      >
+      <Async loading={loading} error={error} onRetry={reload}>
         {data && (
           <>
-            {/* WELCOME HEADER */}
+            {/* HEADER */}
 
             <section className="relative overflow-hidden rounded-2xl bg-slate-950 p-7 text-white">
               <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full border-[40px] border-white/5" />
-
               <div className="absolute bottom-[-100px] right-[25%] h-60 w-60 rounded-full bg-blue-600/10 blur-3xl" />
 
               <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-center">
@@ -372,17 +328,14 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
 
                   <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">
                     Welcome back, {user?.name || 'Administrator'}!
-                    Manage your assigned construction operations
-                    and monitor business activities.
+                    Manage your construction operations and monitor business activities.
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
                   {canWorkers && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
-                      <p className="text-xs text-slate-400">
-                        Active Workforce
-                      </p>
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                      <p className="text-xs text-slate-400">Active Workforce</p>
                       <p className="mt-1 text-2xl font-bold">
                         {activeWorkers.length}
                       </p>
@@ -391,7 +344,7 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
 
                   <button
                     onClick={reload}
-                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-500"
                   >
                     <RefreshCw size={16} />
                     Refresh
@@ -417,11 +370,66 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
                 {canExpenses && (
                   <div className="flex items-center gap-2">
                     <Activity size={14} />
-                    {expenses.length} Recent Expenses Loaded
+                    {expenses.length} Recent Expenses
                   </div>
                 )}
               </div>
             </section>
+
+            {/* EXPENSE ACTIONS */}
+
+            {canExpenses && (
+              <section>
+                <div className="mb-4">
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Record New Expense
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Add your own expense or record one for a worker.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Link
+                    to="/admin/expenses?mode=mine"
+                    className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-md"
+                  >
+                    <div className="rounded-xl bg-blue-50 p-3 text-blue-600">
+                      <Receipt size={23} />
+                    </div>
+
+                    <div className="flex-1">
+                      <h3 className="font-bold text-slate-900">My Expense</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Record your personal expense
+                      </p>
+                    </div>
+
+                    <Plus size={19} className="text-blue-600" />
+                  </Link>
+
+                  {canWorkers && (
+                    <Link
+                      to="/admin/expenses?mode=worker"
+                      className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-md"
+                    >
+                      <div className="rounded-xl bg-violet-50 p-3 text-violet-600">
+                        <Users size={23} />
+                      </div>
+
+                      <div className="flex-1">
+                        <h3 className="font-bold text-slate-900">Add for Worker</h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Record an expense for a worker
+                        </p>
+                      </div>
+
+                      <Plus size={19} className="text-blue-600" />
+                    </Link>
+                  )}
+                </div>
+              </section>
+            )}
 
             {/* ALERTS */}
 
@@ -430,37 +438,30 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
                 {showPendingWorkerAlert && (
                   <Link
                     to="/admin/workers"
-                    className="flex items-center justify-between gap-4 rounded-xl border border-blue-200 bg-blue-50 p-4 transition hover:bg-blue-100"
+                    className="flex items-center justify-between gap-4 rounded-xl border border-blue-200 bg-blue-50 p-4"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
-                        <Users size={19} />
-                      </div>
-
+                      <Users size={20} className="text-blue-700" />
                       <div>
                         <p className="text-sm font-bold text-blue-900">
                           {pendingWorkers.length} New Worker Request(s)
                         </p>
                         <p className="mt-1 text-xs text-blue-700">
-                          New registrations are waiting for approval.
+                          Registrations waiting for approval.
                         </p>
                       </div>
                     </div>
-
-                    <ArrowRight size={19} className="shrink-0 text-blue-700" />
+                    <ArrowRight size={19} />
                   </Link>
                 )}
 
                 {showPendingExpenseAlert && (
                   <Link
                     to="/admin/expenses?status=PENDING"
-                    className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 transition hover:bg-amber-100"
+                    className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="rounded-lg bg-amber-100 p-2 text-amber-700">
-                        <AlertCircle size={19} />
-                      </div>
-
+                      <AlertCircle size={20} className="text-amber-700" />
                       <div>
                         <p className="text-sm font-bold text-amber-900">
                           {pendingCount} Expenses Awaiting Approval
@@ -470,88 +471,69 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
                         </p>
                       </div>
                     </div>
-
-                    <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-amber-800">
-                      Review
-                      <ArrowRight size={16} />
-                    </span>
+                    <ArrowRight size={19} />
                   </Link>
                 )}
               </section>
             )}
 
-            {/* STATISTICS */}
+            {/* STATS */}
 
-            {stats.length > 0 && (
-              <section>
-                <div className="mb-4">
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Business Overview
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Your construction business at a glance.
-                  </p>
-                </div>
+            <section>
+              <h2 className="mb-4 text-lg font-bold text-slate-900">
+                Business Overview
+              </h2>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {stats.map((item) => {
-                    const Icon = item.icon;
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {stats.map(item => {
+                  const Icon = item.icon;
 
-                    return (
-                      <div
-                        key={item.title}
-                        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-slate-500">
-                              {item.title}
-                            </p>
-
-                            <h3 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">
-                              {item.value}
-                            </h3>
-                          </div>
-
-                          <div className={`rounded-xl p-3 ${item.color}`}>
-                            <Icon size={22} />
-                          </div>
+                  return (
+                    <div
+                      key={item.title}
+                      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-sm text-slate-500">{item.title}</p>
+                          <h3 className="mt-3 text-2xl font-bold text-slate-900">
+                            {item.value}
+                          </h3>
                         </div>
 
-                        <p className="mt-4 text-xs text-slate-400">
-                          {item.description}
-                        </p>
+                        <div className={`rounded-xl p-3 ${item.color}`}>
+                          <Icon size={22} />
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+
+                      <p className="mt-4 text-xs text-slate-400">
+                        {item.description}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
 
             {/* QUICK ACTIONS */}
 
             {quickActions.length > 0 && (
               <section>
-                <div className="mb-4">
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Quick Actions
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Quickly access your assigned management sections.
-                  </p>
-                </div>
+                <h2 className="mb-4 text-lg font-bold text-slate-900">
+                  Quick Actions
+                </h2>
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-                  {quickActions.map((action) => {
+                  {quickActions.map(action => {
                     const Icon = action.icon;
 
                     return (
                       <Link
                         key={action.to}
                         to={action.to}
-                        className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-md"
+                        className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-200 hover:shadow-md"
                       >
-                        <div className="rounded-xl bg-blue-50 p-3 text-blue-600 transition group-hover:bg-blue-600 group-hover:text-white">
+                        <div className="rounded-xl bg-blue-50 p-3 text-blue-600 group-hover:bg-blue-600 group-hover:text-white">
                           <Icon size={21} />
                         </div>
 
@@ -570,95 +552,76 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
               </section>
             )}
 
-            {/* FINANCIAL + OPERATIONAL SUMMARY */}
+            {/* FINANCIAL AND OPERATIONAL */}
 
-            {(hasFinancialData || operationalItems.length > 0) && (
-              <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                {hasFinancialData && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-xl bg-blue-50 p-3 text-blue-600">
-                        <Wallet size={22} />
+            <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              {financialItems.length > 0 && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <Wallet size={22} className="text-blue-600" />
+                    <h2 className="font-bold text-slate-900">
+                      Financial Snapshot
+                    </h2>
+                  </div>
+
+                  <div className="mt-6 space-y-5">
+                    {financialItems.map(item => (
+                      <div key={item.label}>
+                        <div className="mb-2 flex justify-between gap-3 text-sm">
+                          <span className="font-medium text-slate-600">
+                            {item.label}
+                          </span>
+                          <span className="font-bold text-slate-900">
+                            {item.value}
+                          </span>
+                        </div>
+
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className={`h-full rounded-full ${item.color}`}
+                            style={{ width: `${item.percentage}%` }}
+                          />
+                        </div>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-                      <div>
-                        <h2 className="font-bold text-slate-900">
-                          Financial Snapshot
-                        </h2>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Funds and expenses overview.
-                        </p>
-                      </div>
-                    </div>
+              {operationalItems.length > 0 && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <Activity size={22} className="text-violet-600" />
+                    <h2 className="font-bold text-slate-900">
+                      Operational Summary
+                    </h2>
+                  </div>
 
-                    <div className="mt-6 space-y-5">
-                      {financialItems.map((item) => (
-                        <div key={item.label}>
-                          <div className="mb-2 flex justify-between gap-3 text-sm">
-                            <span className="font-medium text-slate-600">
+                  <div className="mt-6 space-y-4">
+                    {operationalItems.map(item => {
+                      const Icon = item.icon;
+
+                      return (
+                        <div
+                          key={item.label}
+                          className="flex items-center justify-between rounded-xl bg-slate-50 p-4"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Icon className={item.color} size={20} />
+                            <span className="text-sm font-medium text-slate-700">
                               {item.label}
                             </span>
-                            <span className="font-bold text-slate-900">
-                              {item.value}
-                            </span>
                           </div>
-
-                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className={`h-full rounded-full ${item.color}`}
-                              style={{ width: `${item.percentage}%` }}
-                            />
-                          </div>
+                          <span className="text-lg font-bold text-slate-900">
+                            {item.value}
+                          </span>
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
-                )}
-
-                {operationalItems.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-xl bg-violet-50 p-3 text-violet-600">
-                        <Activity size={22} />
-                      </div>
-
-                      <div>
-                        <h2 className="font-bold text-slate-900">
-                          Operational Summary
-                        </h2>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Current management activity.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-6 space-y-4">
-                      {operationalItems.map((item) => {
-                        const Icon = item.icon;
-
-                        return (
-                          <div
-                            key={item.label}
-                            className="flex items-center justify-between rounded-xl bg-slate-50 p-4"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Icon className={item.color} size={20} />
-                              <span className="text-sm font-medium text-slate-700">
-                                {item.label}
-                              </span>
-                            </div>
-
-                            <span className="text-lg font-bold text-slate-900">
-                              {item.value}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
+                </div>
+              )}
+            </section>
 
             {/* RECENT EXPENSES */}
 
@@ -670,71 +633,55 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
                       Recent Expenses
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Latest expense submissions from your workers.
+                      Latest recorded expense activity.
                     </p>
                   </div>
 
                   <Link
                     to="/admin/expenses"
-                    className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800"
+                    className="flex items-center gap-2 text-sm font-semibold text-blue-600"
                   >
-                    View All Expenses
-                    <ArrowRight size={16} />
+                    View All Expenses <ArrowRight size={16} />
                   </Link>
                 </div>
 
                 {expenses.length === 0 ? (
-                  <div className="p-14 text-center">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50 text-slate-400">
-                      <Receipt size={30} />
-                    </div>
-
-                    <h3 className="mt-4 font-bold text-slate-800">
-                      No expenses yet
-                    </h3>
-
-                    <p className="mt-2 text-sm text-slate-500">
-                      Worker expense submissions will appear here.
-                    </p>
+                  <div className="p-12 text-center text-sm text-slate-500">
+                    No expenses yet.
                   </div>
                 ) : (
                   <Table
                     head={[
                       'Date',
-                      'Worker',
+                      'Expense For',
+                      'Added By',
                       'Site',
                       'Category',
                       'Amount',
                       'Status',
                     ]}
                   >
-                    {expenses.slice(0, 5).map((expense) => (
-                      <tr
-                        key={expense.id}
-                        className="transition hover:bg-slate-50"
-                      >
+                    {expenses.slice(0, 5).map(expense => (
+                      <tr key={expense.id}>
                         <Td>
                           <div className="flex items-center gap-2">
-                            <CalendarDays size={14} className="text-slate-400" />
+                            <CalendarDays size={14} />
                             {fmtDate(expense.createdAt)}
                           </div>
                         </Td>
-
                         <Td>
-                          <span className="font-semibold text-slate-800">
-                            {expense.workerName}
+                          <span className="font-semibold">
+                            {expense.workerName || '—'}
                           </span>
                         </Td>
-
+                        <Td>{expense.addedByName || '—'}</Td>
                         <Td>{expense.siteName || '—'}</Td>
                         <Td>{expense.category}</Td>
-
                         <Td>
-                          <span className="font-bold text-slate-900">
+                          <span className="font-bold">
                             {inr(expense.amount)}
                           </span>
                         </Td>
-
                         <Td>
                           <Badge status={expense.status} />
                         </Td>
@@ -745,32 +692,8 @@ const totalExpenseCount = Number(expenseSummary.totalCount) || 0;
               </section>
             )}
 
-            {/* NO MODULES */}
-
-            {!hasOperationalData &&
-              !canFunds &&
-              !canExpenses &&
-              !can('categories.view') && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-                  <ShieldCheck className="mx-auto h-12 w-12 text-slate-300" />
-
-                  <h2 className="mt-4 text-lg font-bold text-slate-900">
-                    No Modules Assigned
-                  </h2>
-
-                  <p className="mt-2 text-sm text-slate-500">
-                    Contact your Super Admin to get access to management modules.
-                  </p>
-                </div>
-              )}
-
-            {/* FOOTER */}
-
-            <div className="flex flex-col justify-between gap-2 border-t border-slate-200 pt-5 text-xs text-slate-400 sm:flex-row">
-              <p>
-                Construction Manager · Admin Dashboard
-              </p>
-
+            <div className="flex justify-between border-t border-slate-200 pt-5 text-xs text-slate-400">
+              <p>Construction Manager · Admin Dashboard</p>
               <p className="flex items-center gap-2">
                 <ShieldCheck size={14} />
                 Management Control Panel

@@ -73,8 +73,17 @@ export const expenseOut = (e: any) => {
 
   return {
     id: String(e._id),
+
+    // Expense belongs to this person
     workerId: pid(e.workerId),
     workerName: e.workerId?.name,
+    workerRole: e.workerId?.role,
+
+    // Actual person who added the expense
+    addedBy: e.addedBy ? pid(e.addedBy) : undefined,
+    addedByName: e.addedBy?.name,
+    addedByRole: e.addedByRole ?? e.addedBy?.role,
+
     siteId: pid(e.siteId),
     siteName: e.siteId?.name,
 
@@ -82,15 +91,14 @@ export const expenseOut = (e: any) => {
     subcategory: e.subcategory ?? '',
 
     amount: e.amountPaise / 100,
-    description: e.description,
+    description: e.description ?? '',
     createdAt: e.createdAt,
+    expenseDate: e.expenseDate ?? e.createdAt,
+
     status: e.status,
     reviewNote: e.reviewNote || undefined,
 
-    // Backward compatibility
     receiptUrl: receiptUrls[0] ?? undefined,
-
-    // Multiple receipts
     receiptUrls,
   };
 };

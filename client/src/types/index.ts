@@ -3,7 +3,8 @@ export type Role = 'ADMIN' | 'WORKER';
 export type ExpenseStatus =
   | 'PENDING'
   | 'APPROVED'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'RECORDED';
 
 export type AdminPermission =
   | 'dashboard.view'
@@ -22,6 +23,8 @@ export type AdminPermission =
   | 'expenses.view'
   | 'expenses.approve'
   | 'expenses.reject'
+  | 'expenses.create.own'
+|   'expenses.create.forWorker'
   | 'categories.view'
   | 'categories.create'
   | 'categories.update'
@@ -89,8 +92,16 @@ export interface Fund {
 
 export interface Expense {
   id: string;
+  expenseDate?: string;
+
   workerId?: string;
   workerName?: string;
+  workerRole?: Role;
+
+  addedBy?: string;
+  addedByName?: string;
+  addedByRole?: Role;
+
   siteId?: string;
   siteName?: string;
 
@@ -103,10 +114,7 @@ export interface Expense {
   status: ExpenseStatus;
   reviewNote?: string;
 
-  // Multiple receipts
   receiptUrls?: string[];
-
-  // Backward compatibility
   receiptUrl?: string;
 }
 

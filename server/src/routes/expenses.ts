@@ -30,7 +30,6 @@ const r = Router();
 
 r.use(auth);
 
-// Maximum 5 images, each up to 5 MB
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -45,24 +44,46 @@ const esc = (s: string) =>
 const populate = <
   T extends { populate: (p: string, f: string) => T }
 >(q: T) =>
-  q.populate('workerId', 'name').populate('siteId', 'name');
+  q
+    .populate('workerId', 'name role')
+    .populate('addedBy', 'name role')
+    .populate('siteId', 'name');
 
 const str = (v: unknown) =>
   typeof v === 'string' && v ? v : undefined;
 
+// ==========================================
+// INDIA CURRENT DATE
+// ==========================================
+
+const todayIST = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date());
+
+// ==========================================
 // GET ALL EXPENSES - ADMIN
+// ==========================================
+
 r.get(
   '/',
   role('ADMIN'),
   requirePermission('expenses.view'),
   async (req, res) => {
     const q = req.query;
-    const f: Record<string, unknown> = {};
+    const f: Record<string, any> = {};
 
     const status = str(q.status);
 
     if (status) {
-      if (!['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      if (
+        ![
+          'PENDING',
+          'APPROVED',
+          'REJECTED',
+          'RECORDED',
+        ].includes(status)
+      ) {
         throw new HttpError(400, 'Invalid status');
       }
 
@@ -77,55 +98,88 @@ r.get(
       f.siteId = idParam(q.siteId);
     }
 
-    // CATEGORY FILTER
     if (str(q.category)) {
       f.category = str(q.category);
     }
 
-    // SUBCATEGORY FILTER
     if (str(q.subcategory)) {
       f.subcategory = str(q.subcategory);
     }
 
-    // DATE FILTER
-    const from = str(q.from);
-    const to = str(q.to);
+    // FILTER BY ACTUAL EXPENSE DATE
+    // Old records fallback to createdAt
 
-    if (from || to) {
-      f.createdAt = {
-        ...(from && {
-          $gte: new Date(from + 'T00:00:00.000Z'),
-        }),
-        ...(to && {
-          $lte: new Date(to + 'T23:59:59.999Z'),
-        }),
+    if (str(q.from) || str(q.to)) {
+      const dateConditions: any[] = [];
+
+      if (str(q.from)) {
+        dateConditions.push({
+          $gte: [
+            {
+              $ifNull: [
+                '$expenseDate',
+                '$createdAt',
+              ],
+            },
+            new Date(
+              str(q.from)! + 'T00:00:00.000Z',
+            ),
+          ],
+        });
+      }
+
+      if (str(q.to)) {
+        dateConditions.push({
+          $lte: [
+            {
+              $ifNull: [
+                '$expenseDate',
+                '$createdAt',
+              ],
+            },
+            new Date(
+              str(q.to)! + 'T23:59:59.999Z',
+            ),
+          ],
+        });
+      }
+
+      f.$expr = {
+        $and: dateConditions,
       };
     }
 
-    // SEARCH FILTER
+    // SEARCH
+
     const text = str(q.q);
 
     if (text) {
-      const rx = new RegExp(esc(text.slice(0, 80)), 'i');
+      const rx = new RegExp(
+        esc(text.slice(0, 80)),
+        'i',
+      );
 
-      const ws = await User.find({
-        role: 'WORKER',
+      const matchingUsers = await User.find({
         name: rx,
-      }).select('_id').lean();
+      })
+        .select('_id')
+        .lean();
+
+      const ids = matchingUsers.map(u => u._id);
 
       f.$or = [
         { description: rx },
         { category: rx },
         { subcategory: rx },
-        {
-          workerId: {
-            $in: ws.map(w => w._id),
-          },
-        },
+        { workerId: { $in: ids } },
+        { addedBy: { $in: ids } },
       ];
     }
 
-    const limit = Math.min(Number(q.limit) || 500, 500);
+    const limit = Math.min(
+      Number(q.limit) || 500,
+      500,
+    );
 
     const items = await populate(
       Expense.find(f)
@@ -133,7 +187,6 @@ r.get(
         .limit(limit),
     ).lean();
 
-    // EXPENSE SUMMARY
     const agg = await Expense.aggregate([
       {
         $group: {
@@ -149,6 +202,7 @@ r.get(
 
     res.json({
       data: items.map(expenseOut),
+
       summary: {
         totalAmount:
           agg.reduce((a, x) => a + x.t, 0) / 100,
@@ -159,6 +213,9 @@ r.get(
         pendingAmount:
           (g('PENDING')?.t ?? 0) / 100,
 
+        recordedAmount:
+          (g('RECORDED')?.t ?? 0) / 100,
+
         pendingCount:
           g('PENDING')?.n ?? 0,
 
@@ -167,83 +224,239 @@ r.get(
 
         approvedCount:
           g('APPROVED')?.n ?? 0,
+
+        recordedCount:
+          g('RECORDED')?.n ?? 0,
       },
     });
   },
 );
 
+// ==========================================
 // WORKER - OWN EXPENSES
-r.get('/my', role('WORKER'), async (req, res) => {
-  const id = me(req).id;
+// ==========================================
 
-  const items = await populate(
-    Expense.find({ workerId: id })
-      .sort({ createdAt: -1 }),
-  ).lean();
+r.get(
+  '/my',
+  role('WORKER'),
+  async (req, res) => {
+    const id = me(req).id;
 
-  res.json({
-    data: items.map(expenseOut),
-    summary: statsOf(
-      await workerStats([id]),
-      id,
-    ),
-  });
-});
+    const items = await populate(
+      Expense.find({ workerId: id })
+        .sort({ createdAt: -1 }),
+    ).lean();
 
-// WORKER - SUBMIT EXPENSE
+    res.json({
+      data: items.map(expenseOut),
+
+      summary: statsOf(
+        await workerStats([id]),
+        id,
+      ),
+    });
+  },
+);
+
+// ==========================================
+// SUBMIT EXPENSE - ADMIN / WORKER
+// ==========================================
+
 r.post(
   '/',
-  role('WORKER'),
   upload.array('receipts', 5),
+
+  // ADMIN PERMISSION CHECK
+
+  (req, res, next) => {
+    const currentUser = me(req);
+
+    if (currentUser.role !== 'ADMIN') {
+      return next();
+    }
+
+    const permission = req.body?.workerId
+      ? 'expenses.create.forWorker'
+      : 'expenses.create.own';
+
+    return requirePermission(permission)(
+      req,
+      res,
+      next,
+    );
+  },
+
   async (req, res) => {
+    const currentUser = me(req);
+
+    const isAdmin = currentUser.role === 'ADMIN';
+
+    if (
+      currentUser.role !== 'ADMIN' &&
+      currentUser.role !== 'WORKER'
+    ) {
+      throw new HttpError(403, 'Access denied');
+    }
+
+    // VALIDATE REQUEST BODY
+
     const b = parse(
       z.object({
-        siteId: z.string(),
+        siteId: z.string().min(1),
+
+        workerId: z.string().optional(),
+
+        expenseDate: z.string()
+          .regex(
+            /^\d{4}-\d{2}-\d{2}$/,
+            'Invalid expense date',
+          )
+          .optional(),
+
         amount: money,
-        category: z.string().trim().min(1, 'Category is required'),
-        subcategory: z.string().trim().optional().default(''),
-        description: z.string().trim().max(500).optional(),
+
+        category: z.string()
+          .trim()
+          .min(1, 'Category is required'),
+
+        subcategory: z.string()
+          .trim()
+          .optional()
+          .default(''),
+
+        description: z.string()
+          .trim()
+          .max(500)
+          .optional(),
       }),
       req.body,
     );
 
-    // VALIDATE ACTIVE SITE
-    // VALIDATE ASSIGNED ACTIVE SITE
-const worker = await User.findById(me(req).id)
-  .select('assignedSites')
-  .lean();
+    // VALIDATE EXPENSE DATE
 
-if (!worker) {
-  throw new HttpError(404, 'Worker not found');
-}
+    const selectedDate = isAdmin
+      ? (b.expenseDate || todayIST())
+      : todayIST();
 
-const selectedSiteId = idParam(b.siteId);
+    const [year, month, day] = selectedDate
+      .split('-')
+      .map(Number);
 
-const isAssigned = (worker.assignedSites ?? []).some(
-  siteId => String(siteId) === String(selectedSiteId)
-);
+    const expenseDate = new Date(
+      Date.UTC(year, month - 1, day),
+    );
 
-if (!isAssigned) {
-  throw new HttpError(
-    403,
-    'You are not assigned to this site.',
-  );
-}
+    // Reject invalid calendar dates
+    if (
+      expenseDate.toISOString().slice(0, 10) !==
+      selectedDate
+    ) {
+      throw new HttpError(
+        400,
+        'Invalid expense date',
+      );
+    }
 
-const siteExists = await Site.exists({
-  _id: selectedSiteId,
-  isActive: true,
-  isCompleted: false,
-});
+    // Reject future dates
 
-if (!siteExists) {
-  throw new HttpError(
-    400,
-    'Selected site is inactive or completed.',
-  );
-}
+    if (selectedDate > todayIST()) {
+      throw new HttpError(
+        400,
+        'Future expense dates are not allowed',
+      );
+    }
 
-    // FIND ACTIVE CATEGORY
+    // VALIDATE SITE
+
+    const selectedSiteId = idParam(b.siteId);
+
+    const siteExists = await Site.exists({
+      _id: selectedSiteId,
+      isActive: true,
+      isCompleted: false,
+    });
+
+    if (!siteExists) {
+      throw new HttpError(
+        400,
+        'Selected site is inactive or completed',
+      );
+    }
+
+    // DETERMINE EXPENSE OWNER
+
+    let expenseOwnerId = currentUser.id;
+
+    // ADMIN ADDING EXPENSE FOR WORKER
+
+    if (isAdmin && b.workerId) {
+      const workerId = idParam(b.workerId);
+
+      const worker = await User.findOne({
+        _id: workerId,
+        role: 'WORKER',
+        isActive: true,
+      })
+        .select('_id assignedSites')
+        .lean();
+
+      if (!worker) {
+        throw new HttpError(
+          404,
+          'Worker not found or inactive',
+        );
+      }
+
+      const assigned = (
+        worker.assignedSites ?? []
+      ).some(
+        site =>
+          String(site) === String(selectedSiteId),
+      );
+
+      if (!assigned) {
+        throw new HttpError(
+          403,
+          'Worker is not assigned to this site',
+        );
+      }
+
+      expenseOwnerId = String(worker._id);
+    }
+
+    // WORKER MUST USE ASSIGNED SITE
+
+    if (!isAdmin) {
+      const worker = await User.findById(
+        currentUser.id,
+      )
+        .select('assignedSites')
+        .lean();
+
+      if (!worker) {
+        throw new HttpError(
+          404,
+          'Worker not found',
+        );
+      }
+
+      const assigned = (
+        worker.assignedSites ?? []
+      ).some(
+        site =>
+          String(site) === String(selectedSiteId),
+      );
+
+      if (!assigned) {
+        throw new HttpError(
+          403,
+          'You are not assigned to this site',
+        );
+      }
+    }
+
+    // VALIDATE CATEGORY
+
     const categoryDoc = await Category.findOne({
       name: b.category,
       isActive: true,
@@ -253,10 +466,12 @@ if (!siteExists) {
     });
 
     if (!categoryDoc) {
-      throw new HttpError(400, 'Select a valid category');
+      throw new HttpError(
+        400,
+        'Select a valid category',
+      );
     }
 
-    // VALIDATE SUBCATEGORY
     const activeSubcategories = (
       categoryDoc.subcategories ?? []
     ).filter(sub => sub.isActive);
@@ -265,22 +480,29 @@ if (!siteExists) {
       activeSubcategories.length > 0 &&
       !b.subcategory
     ) {
-      throw new HttpError(400, 'Select a subcategory');
+      throw new HttpError(
+        400,
+        'Select a subcategory',
+      );
     }
 
     if (b.subcategory) {
-      const validSubcategory = activeSubcategories.some(
+      const valid = activeSubcategories.some(
         sub =>
           sub.name.trim().toLowerCase() ===
           b.subcategory.trim().toLowerCase(),
       );
 
-      if (!validSubcategory) {
-        throw new HttpError(400, 'Select a valid subcategory');
+      if (!valid) {
+        throw new HttpError(
+          400,
+          'Select a valid subcategory',
+        );
       }
     }
 
-    // GET UPLOADED IMAGES
+    // RECEIPTS
+
     const files = (
       req.files as Express.Multer.File[] | undefined
     ) ?? [];
@@ -292,56 +514,90 @@ if (!siteExists) {
       );
     }
 
-    // SAVE ALL RECEIPT IMAGES
     const receiptKeys = await Promise.all(
       files.map(file => saveReceipt(file)),
     );
 
+    // STATUS LOGIC
+
+    const status = isAdmin
+      ? 'RECORDED'
+      : 'PENDING';
+
     // CREATE EXPENSE
+
     const e = await Expense.create({
-      workerId: me(req).id,
-      siteId: b.siteId,
+      workerId: expenseOwnerId,
+
+      addedBy: currentUser.id,
+      addedByRole: currentUser.role,
+
+      siteId: selectedSiteId,
+
+      expenseDate,
+
       category: b.category,
       subcategory: b.subcategory,
+
       amountPaise: b.amount,
+
       description: b.description ?? '',
+
+      status,
+
       receiptKeys,
+
       history: [
         {
-          status: 'PENDING',
-          by: me(req).id,
+          status,
+          by: oid(currentUser.id),
           at: new Date(),
+          note: isAdmin
+            ? 'Recorded directly by admin'
+            : 'Submitted by worker',
         },
       ],
     });
 
+    // AUDIT
+
     audit(
-      me(req).id,
-      'EXPENSE_SUBMITTED',
+      currentUser.id,
+      isAdmin
+        ? 'ADMIN_EXPENSE_RECORDED'
+        : 'EXPENSE_SUBMITTED',
       'Expense',
       e.id,
       {
+        workerId: expenseOwnerId,
+        addedBy: currentUser.id,
         amountPaise: b.amount,
         category: b.category,
         subcategory: b.subcategory,
+        expenseDate: selectedDate,
+        status,
         receiptCount: receiptKeys.length,
       },
     );
 
+    const saved = await populate(
+      Expense.findById(e.id),
+    ).lean();
+
     res.status(201).json({
-      data: expenseOut(
-        await populate(
-          Expense.findById(e.id),
-        ).lean(),
-      ),
+      data: expenseOut(saved),
     });
   },
 );
 
+// ==========================================
 // ADMIN - APPROVE / REJECT EXPENSE
+// ==========================================
+
 r.patch(
   '/:id/review',
   role('ADMIN'),
+
   async (req, res, next) => {
     const status = req.body?.status;
 
@@ -361,13 +617,24 @@ r.patch(
       );
     }
 
-    throw new HttpError(400, 'Invalid expense status');
+    throw new HttpError(
+      400,
+      'Invalid expense status',
+    );
   },
+
   async (req, res) => {
     const b = parse(
       z.object({
-        status: z.enum(['APPROVED', 'REJECTED']),
-        reviewNote: z.string().trim().max(500).optional(),
+        status: z.enum([
+          'APPROVED',
+          'REJECTED',
+        ]),
+
+        reviewNote: z.string()
+          .trim()
+          .max(500)
+          .optional(),
       }),
       req.body,
     );
@@ -375,7 +642,6 @@ r.patch(
     const id = idParam(req.params.id);
     const at = new Date();
 
-    // ATOMIC UPDATE PREVENTS DUPLICATE REVIEWS
     const e = await Expense.findOneAndUpdate(
       {
         _id: id,
@@ -385,9 +651,10 @@ r.patch(
         $set: {
           status: b.status,
           reviewNote: b.reviewNote ?? '',
-          reviewedBy: me(req).id,
+          reviewedBy: currentUserId(req),
           reviewedAt: at,
         },
+
         $push: {
           history: {
             status: b.status,
@@ -409,7 +676,10 @@ r.patch(
               409,
               'Only pending expenses can be reviewed',
             )
-          : new HttpError(404, 'Expense not found')
+          : new HttpError(
+              404,
+              'Expense not found',
+            )
       );
     }
 
@@ -436,5 +706,9 @@ r.patch(
     });
   },
 );
+
+function currentUserId(req: any) {
+  return me(req).id;
+}
 
 export default r;

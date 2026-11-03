@@ -5,10 +5,13 @@ export interface Stats {
   approvedAmount: number;
   pendingAmount: number;
   rejectedAmount: number;
+  recordedAmount: number;
   availableBalance: number;
+
   approvedCount: number;
   pendingCount: number;
   rejectedCount: number;
+  recordedCount: number;
 }
 
 const zero = (): Stats => ({
@@ -16,14 +19,15 @@ const zero = (): Stats => ({
   approvedAmount: 0,
   pendingAmount: 0,
   rejectedAmount: 0,
+  recordedAmount: 0,
   availableBalance: 0,
+
   approvedCount: 0,
   pendingCount: 0,
   rejectedCount: 0,
+  recordedCount: 0,
 });
 
-// Balance = Total funds allocated - APPROVED expenses only.
-// Calculated from database records every time; never stored.
 export async function workerStats(
   ids?: string[]
 ): Promise<Map<string, Stats>> {
@@ -67,46 +71,49 @@ export async function workerStats(
     return statsMap.get(id)!;
   };
 
-  // Calculate total allocated funds.
   for (const fund of funds) {
-    const stats = getStats(String(fund._id));
-    stats.totalAllocated = fund.total / 100;
+    getStats(String(fund._id)).totalAllocated =
+      fund.total / 100;
   }
 
-  const statusMap = {
-    APPROVED: 'approved',
-    PENDING: 'pending',
-    REJECTED: 'rejected',
-  } as const;
-
-  // Calculate expense amounts and counts.
   for (const expense of expenses) {
     const workerId = String(expense._id.workerId);
-    const status = expense._id.status as keyof typeof statusMap;
-    const key = statusMap[status];
-
-    if (!key) continue;
-
     const stats = getStats(workerId);
 
-    if (key === 'approved') {
-      stats.approvedAmount = expense.total / 100;
-      stats.approvedCount = expense.count;
-    } else if (key === 'pending') {
-      stats.pendingAmount = expense.total / 100;
-      stats.pendingCount = expense.count;
-    } else if (key === 'rejected') {
-      stats.rejectedAmount = expense.total / 100;
-      stats.rejectedCount = expense.count;
+    const amount = expense.total / 100;
+    const count = expense.count;
+
+    switch (expense._id.status) {
+      case 'APPROVED':
+        stats.approvedAmount = amount;
+        stats.approvedCount = count;
+        break;
+
+      case 'PENDING':
+        stats.pendingAmount = amount;
+        stats.pendingCount = count;
+        break;
+
+      case 'REJECTED':
+        stats.rejectedAmount = amount;
+        stats.rejectedCount = count;
+        break;
+
+      case 'RECORDED':
+        stats.recordedAmount = amount;
+        stats.recordedCount = count;
+        break;
     }
   }
 
-  // Available balance = allocated funds - approved expenses.
   for (const stats of statsMap.values()) {
-    stats.availableBalance =
-      Math.round(
-        (stats.totalAllocated - stats.approvedAmount) * 100
-      ) / 100;
+    stats.availableBalance = Math.round(
+      (
+        stats.totalAllocated -
+        stats.approvedAmount -
+        stats.recordedAmount
+      ) * 100
+    ) / 100;
   }
 
   return statsMap;

@@ -31,7 +31,12 @@ export function Confirm({ title, message, confirmText, variant = 'primary', busy
       <Button variant={variant} loading={busy} onClick={onConfirm}>{confirmText}</Button></div></Modal>;
 }
 
-const sc: Record<ExpenseStatus, string> = { PENDING: 'bg-amber-100 text-amber-800', APPROVED: 'bg-emerald-100 text-emerald-800', REJECTED: 'bg-red-100 text-red-800' };
+const sc: Record<ExpenseStatus, string> = {
+  PENDING: 'bg-amber-100 text-amber-800',
+  APPROVED: 'bg-emerald-100 text-emerald-800',
+  REJECTED: 'bg-red-100 text-red-800',
+  RECORDED: 'bg-blue-100 text-blue-800',
+};
 export const Badge = ({ status }: { status: ExpenseStatus }) => <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${sc[status]}`}>{status[0] + status.slice(1).toLowerCase()}</span>;
 export const ActiveBadge = ({ on }: { on: boolean }) => <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${on ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>{on ? 'Active' : 'Inactive'}</span>;
 
