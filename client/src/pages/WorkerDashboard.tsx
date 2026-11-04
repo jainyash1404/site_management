@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 
 import {
   Wallet,
@@ -52,6 +58,7 @@ const MAX_SIZE = 5 * 1024 * 1024;
 export default function WorkerDashboard() {
   const toast = useToast();
 
+  // DATA
   const {
     data,
     error,
@@ -69,13 +76,16 @@ export default function WorkerDashboard() {
       .filter(c => c.isActive),
   }));
 
+  // FORM STATE
   const [v, setV] = useState({
     siteId: '',
     amount: '',
-    category: '',
-    subcategory: '',
     description: '',
   });
+
+  // UNLIMITED CATEGORY PATH
+  const [selectedCategoryIds, setSelectedCategoryIds] =
+    useState<string[]>([]);
 
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -86,25 +96,89 @@ export default function WorkerDashboard() {
 
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const selectedCategory = data?.c.find(
-    c => c.name === v.category,
-  );
+  const categories = data?.c ?? [];
 
-  const subcategories = (selectedCategory?.subcategories ?? [])
-    .filter(s => s.isActive);
+  // CATEGORY TREE
+  const categoryTree = useMemo(() => {
+    const map = new Map<string, ExpenseCategory & {
+      children: any[];
+    }>();
 
-  // Receipt previews
+    categories.forEach(category => {
+      map.set(category.id, {
+        ...category,
+        children: [],
+      });
+    });
+
+    const roots: any[] = [];
+
+    map.forEach(node => {
+      const parent = node.parentId
+        ? map.get(node.parentId)
+        : undefined;
+
+      if (parent) {
+        parent.children.push(node);
+      } else if (!node.parentId) {
+        roots.push(node);
+      }
+    });
+
+    const sortTree = (nodes: any[]) => {
+      nodes.sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+
+      nodes.forEach(node =>
+        sortTree(node.children)
+      );
+    };
+
+    sortTree(roots);
+
+    return roots;
+  }, [categories]);
+
+  // SELECTED CATEGORY PATH
+  const selectedCategoryPath = selectedCategoryIds
+    .map(id => categories.find(c => c.id === id))
+    .filter((c): c is ExpenseCategory => Boolean(c));
+
+  const selectedCategoryId =
+    selectedCategoryIds[selectedCategoryIds.length - 1] ?? '';
+
+  const categoryPath = selectedCategoryPath
+    .map(c => c.name)
+    .join(' / ');
+
+  // CHILD CATEGORIES AT ANY DEPTH
+  const getChildren = (parentId: string) =>
+    categories
+      .filter(c =>
+        c.parentId === parentId &&
+        c.isActive
+      )
+      .sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+
+  // RECEIPT PREVIEWS
   useEffect(() => {
-    const urls = files.map(file => URL.createObjectURL(file));
+    const urls = files.map(file =>
+      URL.createObjectURL(file)
+    );
 
     setPreviews(urls);
 
     return () => {
-      urls.forEach(url => URL.revokeObjectURL(url));
+      urls.forEach(url =>
+        URL.revokeObjectURL(url)
+      );
     };
   }, [files]);
 
-  // Select and validate multiple receipt images
+  // PICK RECEIPTS
   const pick = (selectedFiles?: FileList | File[]) => {
     if (!selectedFiles?.length) return;
 
@@ -150,7 +224,10 @@ export default function WorkerDashboard() {
     }
 
     if (validFiles.length) {
-      setFiles(prev => [...prev, ...validFiles]);
+      setFiles(prev => [
+        ...prev,
+        ...validFiles,
+      ]);
 
       setErrs(x => ({
         ...x,
@@ -163,9 +240,11 @@ export default function WorkerDashboard() {
     }
   };
 
-  // Remove individual receipt
+  // REMOVE ONE RECEIPT
   const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
+    setFiles(prev =>
+      prev.filter((_, i) => i !== index)
+    );
 
     setErrs(x => ({
       ...x,
@@ -177,7 +256,7 @@ export default function WorkerDashboard() {
     }
   };
 
-  // Clear all receipts
+  // CLEAR RECEIPTS
   const clear = () => {
     setFiles([]);
 
@@ -186,7 +265,7 @@ export default function WorkerDashboard() {
     }
   };
 
-  // Submit expense
+  // SUBMIT EXPENSE
   const submit = async (e: FormEvent) => {
     e.preventDefault();
 
@@ -202,12 +281,8 @@ export default function WorkerDashboard() {
       er.amount = 'Enter a valid amount';
     }
 
-    if (!v.category) {
-      er.category = 'Select a category';
-    }
-
-    if (subcategories.length > 0 && !v.subcategory) {
-      er.subcategory = 'Select a subcategory';
+    if (!selectedCategoryId || !categoryPath) {
+      er.category = 'Select an expense category';
     }
 
     if (errs.file) {
@@ -218,13 +293,29 @@ export default function WorkerDashboard() {
 
     if (Object.keys(er).length) return;
 
+    const numericAmount = Number(v.amount);
+
+    if (!Number.isFinite(numericAmount)) {
+      toast('Enter a valid amount', 'err');
+      return;
+    }
+
     const fd = new FormData();
 
     fd.append('siteId', v.siteId);
-    fd.append('amount', v.amount);
-    fd.append('category', v.category);
-    fd.append('subcategory', v.subcategory);
-    fd.append('description', v.description.trim());
+
+    fd.append(
+      'amount',
+      String(Math.round(numericAmount * 100))
+    );
+
+    // COMPLETE CATEGORY HIERARCHY
+    fd.append('category', categoryPath);
+
+    fd.append(
+      'description',
+      v.description.trim()
+    );
 
     files.forEach(file => {
       fd.append('receipts', file);
@@ -240,13 +331,12 @@ export default function WorkerDashboard() {
       setV({
         siteId: '',
         amount: '',
-        category: '',
-        subcategory: '',
         description: '',
       });
 
-      clear();
+      setSelectedCategoryIds([]);
 
+      clear();
       setErrs({});
 
       reload();
@@ -257,9 +347,11 @@ export default function WorkerDashboard() {
     }
   };
 
+  // DASHBOARD DATA
   const sm = data?.x.summary ?? {};
   const expenses = data?.x.items ?? [];
 
+  // EXPENSE SEARCH
   const filteredExpenses = expenses.filter(e => {
     const q = search.toLowerCase();
 
@@ -271,13 +363,13 @@ export default function WorkerDashboard() {
     );
   });
 
+  // STATISTICS
   const stats = [
     {
       title: 'Funds Received',
       value: inr(sm.totalAllocated),
       description: 'Total funds allocated',
       icon: Wallet,
-      color: 'blue',
       iconBg: 'bg-blue-50 text-blue-600',
     },
     {
@@ -285,7 +377,6 @@ export default function WorkerDashboard() {
       value: inr(sm.approvedAmount),
       description: 'Successfully approved',
       icon: CheckCircle2,
-      color: 'emerald',
       iconBg: 'bg-emerald-50 text-emerald-600',
     },
     {
@@ -293,7 +384,6 @@ export default function WorkerDashboard() {
       value: inr(sm.availableBalance),
       description: 'Remaining amount',
       icon: TrendingUp,
-      color: 'green',
       iconBg: 'bg-green-50 text-green-600',
     },
     {
@@ -301,7 +391,6 @@ export default function WorkerDashboard() {
       value: inr(sm.pendingAmount),
       description: `${num(sm.pendingCount)} awaiting approval`,
       icon: Clock,
-      color: 'amber',
       iconBg: 'bg-amber-50 text-amber-600',
     },
     {
@@ -309,7 +398,6 @@ export default function WorkerDashboard() {
       value: inr(sm.rejectedAmount),
       description: `${num(sm.rejectedCount)} rejected`,
       icon: XCircle,
-      color: 'red',
       iconBg: 'bg-red-50 text-red-600',
     },
   ];
@@ -585,114 +673,158 @@ export default function WorkerDashboard() {
 
               </div>
 
-              {/* CATEGORY + DESCRIPTION */}
+              {/* CATEGORY */}
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="space-y-3">
 
-                <div>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Expense Category *
+                </label>
 
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">
-                    Expense Category *
-                  </label>
+                {/* MAIN CATEGORY */}
 
+                {selectedCategoryIds.length === 0 && (
                   <select
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                    value={v.category}
-                    onChange={e =>
-                      setV({
-                        ...v,
-                        category: e.target.value,
-                        subcategory: '',
-                      })
-                    }
+                    value=""
+                    onChange={e => {
+                      if (e.target.value) {
+                        setSelectedCategoryIds([
+                          e.target.value,
+                        ]);
+
+                        setErrs(prev => ({
+                          ...prev,
+                          category: '',
+                        }));
+                      }
+                    }}
                   >
 
                     <option value="">
-                      Select category
+                      Select main category
                     </option>
 
-                    {data?.c.map(c => (
-                      <option key={c.id} value={c.name}>
+                    {categoryTree.map(c => (
+                      <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
                     ))}
 
                   </select>
+                )}
 
-                  {errs.category && (
-                    <p className="mt-1 text-xs text-red-500">
-                      {errs.category}
+                {/* CHILD LEVELS */}
+
+                {selectedCategoryIds.map((id, index) => {
+                  const children = getChildren(id);
+
+                  if (!children.length) return null;
+
+                  return (
+                    <select
+                      key={id}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                      value={selectedCategoryIds[index + 1] ?? ''}
+                      onChange={e => {
+                        const value = e.target.value;
+
+                        setSelectedCategoryIds(prev => {
+                          const next = prev.slice(0, index + 1);
+
+                          if (value) {
+                            next.push(value);
+                          }
+
+                          return next;
+                        });
+
+                        setErrs(prev => ({
+                          ...prev,
+                          category: '',
+                        }));
+                      }}
+                    >
+
+                      <option value="">
+                        Select subcategory (optional)
+                      </option>
+
+                      {children.map(child => (
+                        <option
+                          key={child.id}
+                          value={child.id}
+                        >
+                          {child.name}
+                        </option>
+                      ))}
+
+                    </select>
+                  );
+                })}
+
+                {/* SELECTED PATH */}
+
+                {selectedCategoryIds.length > 0 && (
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+
+                    <p className="text-xs font-semibold text-blue-700">
+                      Selected Category Path
                     </p>
-                  )}
 
-                </div>
+                    <p className="mt-1 break-words text-sm font-medium text-blue-900">
+                      {categoryPath}
+                    </p>
 
-                <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategoryIds([]);
 
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">
-                    Description
-                  </label>
+                        setErrs(prev => ({
+                          ...prev,
+                          category: '',
+                        }));
+                      }}
+                      className="mt-2 text-xs font-semibold text-red-600 hover:underline"
+                    >
+                      Reset Selection
+                    </button>
 
-                  <input
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                    placeholder="What was this expense for?"
-                    value={v.description}
-                    onChange={e =>
-                      setV({
-                        ...v,
-                        description: e.target.value,
-                      })
-                    }
-                  />
+                  </div>
+                )}
 
-                </div>
+                {errs.category && (
+                  <p className="text-xs text-red-500">
+                    {errs.category}
+                  </p>
+                )}
 
               </div>
 
-              {/* SUBCATEGORY */}
+              {/* DESCRIPTION */}
 
-              {v.category && subcategories.length > 0 && (
+              <div>
 
-                <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Description
+                </label>
 
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">
-                    Expense Subcategory *
-                  </label>
+                <input
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  placeholder="What was this expense for?"
+                  value={v.description}
+                  onChange={e =>
+                    setV({
+                      ...v,
+                      description: e.target.value,
+                    })
+                  }
+                />
 
-                  <select
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                    value={v.subcategory}
-                    onChange={e =>
-                      setV({
-                        ...v,
-                        subcategory: e.target.value,
-                      })
-                    }
-                  >
+              </div>
 
-                    <option value="">
-                      Select subcategory
-                    </option>
-
-                    {subcategories.map(sub => (
-                      <option key={sub.id} value={sub.name}>
-                        {sub.name}
-                      </option>
-                    ))}
-
-                  </select>
-
-                  {errs.subcategory && (
-                    <p className="mt-1 text-xs text-red-500">
-                      {errs.subcategory}
-                    </p>
-                  )}
-
-                </div>
-
-              )}
-
-              {/* MULTIPLE RECEIPT UPLOAD */}
+              {/* RECEIPT UPLOAD */}
 
               <div>
 
@@ -718,6 +850,7 @@ export default function WorkerDashboard() {
                   onDrop={e => {
                     e.preventDefault();
                     e.stopPropagation();
+
                     pick(e.dataTransfer.files);
                   }}
                   className={`rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-7 text-center transition hover:border-blue-400 hover:bg-blue-50/40 ${
@@ -733,7 +866,9 @@ export default function WorkerDashboard() {
                     hidden
                     multiple
                     accept="image/jpeg,image/png,image/webp"
-                    onChange={e => pick(e.target.files ?? undefined)}
+                    onChange={e =>
+                      pick(e.target.files ?? undefined)
+                    }
                   />
 
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
@@ -761,11 +896,9 @@ export default function WorkerDashboard() {
                 {/* IMAGE PREVIEWS */}
 
                 {files.length > 0 && (
-
                   <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
 
                     {files.map((file, index) => (
-
                       <div
                         key={`${file.name}-${index}`}
                         className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-2"
@@ -795,15 +928,12 @@ export default function WorkerDashboard() {
                         </p>
 
                       </div>
-
                     ))}
 
                   </div>
-
                 )}
 
                 {files.length > 0 && (
-
                   <button
                     type="button"
                     onClick={clear}
@@ -812,7 +942,6 @@ export default function WorkerDashboard() {
                     <X size={14} />
                     Remove All Receipts
                   </button>
-
                 )}
 
               </div>
@@ -941,7 +1070,6 @@ export default function WorkerDashboard() {
                   icon: XCircle,
                 },
               ].map(item => {
-
                 const Icon = item.icon;
 
                 return (
@@ -972,7 +1100,7 @@ export default function WorkerDashboard() {
                             expenses.length
                               ? Math.min(
                                   100,
-                                  (Number(item.count) / expenses.length) * 100,
+                                  (Number(item.count) / expenses.length) * 100
                                 )
                               : 0
                           }%`,
@@ -1010,9 +1138,7 @@ export default function WorkerDashboard() {
             <div className="mt-4 space-y-3">
 
               {data?.s.length ? (
-
                 data.s.map(site => (
-
                   <div
                     key={site.id}
                     className="flex items-center gap-3 rounded-xl bg-slate-50 p-3"
@@ -1035,15 +1161,11 @@ export default function WorkerDashboard() {
                     </div>
 
                   </div>
-
                 ))
-
               ) : (
-
                 <p className="py-4 text-center text-sm text-slate-400">
                   No active sites available.
                 </p>
-
               )}
 
             </div>
@@ -1099,7 +1221,6 @@ export default function WorkerDashboard() {
         </div>
 
         {!expenses.length ? (
-
           <div className="p-14 text-center">
 
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50 text-slate-400">
@@ -1115,15 +1236,11 @@ export default function WorkerDashboard() {
             </p>
 
           </div>
-
         ) : !filteredExpenses.length ? (
-
           <div className="p-10 text-center text-sm text-slate-500">
             No matching expenses found.
           </div>
-
         ) : (
-
           <div className="overflow-x-auto">
 
             <table className="w-full text-left">
@@ -1145,7 +1262,6 @@ export default function WorkerDashboard() {
               <tbody className="divide-y divide-slate-100">
 
                 {filteredExpenses.map(e => {
-
                   const receiptUrls = e.receiptUrls?.length
                     ? e.receiptUrls
                     : e.receiptUrl
@@ -1153,14 +1269,13 @@ export default function WorkerDashboard() {
                       : [];
 
                   return (
-
                     <tr
                       key={e.id}
                       className="transition hover:bg-slate-50"
                     >
 
                       <td className="whitespace-nowrap px-6 py-5 text-sm text-slate-600">
-                        {fmtDate(e.createdAt)}
+                        {fmtDate(e.expenseDate || e.createdAt)}
                       </td>
 
                       <td className="px-6 py-5">
@@ -1206,7 +1321,6 @@ export default function WorkerDashboard() {
                       <td className="px-6 py-5">
 
                         {receiptUrls.length > 0 ? (
-
                           <div className="flex flex-wrap gap-2">
 
                             {receiptUrls.map((url, index) => (
@@ -1217,7 +1331,6 @@ export default function WorkerDashboard() {
                             ))}
 
                           </div>
-
                         ) : (
                           <span className="text-xs text-slate-400">
                             —
@@ -1227,7 +1340,6 @@ export default function WorkerDashboard() {
                       </td>
 
                     </tr>
-
                   );
                 })}
 
@@ -1236,7 +1348,6 @@ export default function WorkerDashboard() {
             </table>
 
           </div>
-
         )}
 
         <div className="border-t border-slate-100 bg-slate-50 px-6 py-3 text-xs text-slate-500">
