@@ -65,17 +65,13 @@ export interface Site {
   isCompleted: boolean;
 }
 
-export interface ExpenseSubcategory {
-  id: string;
-  name: string;
-  isActive: boolean;
-}
-
 export interface ExpenseCategory {
   id: string;
   name: string;
+  parentId: string | null;
   isActive: boolean;
-  subcategories?: ExpenseSubcategory[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Fund {

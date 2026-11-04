@@ -148,34 +148,26 @@ export const Site = model('Site', new Schema({
 
 }, { timestamps: true }));
 
-// Category Model
+
+// Category Model - Unlimited Hierarchical Categories
 export const Category = model('Category', new Schema({
   name: {
     type: String,
     required: true,
     trim: true,
-    unique: true,
+  },
+
+  parentId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Category',
+    default: null,
+    index: true,
   },
 
   isActive: {
     type: Boolean,
     default: true,
   },
-
-  subcategories: [
-    {
-      name: {
-        type: String,
-        required: true,
-        trim: true,
-      },
-
-      isActive: {
-        type: Boolean,
-        default: true,
-      },
-    },
-  ],
 
 }, {
   timestamps: true,
@@ -184,6 +176,8 @@ export const Category = model('Category', new Schema({
     strength: 2,
   },
 }));
+
+Category.schema.index({ parentId: 1, name: 1 }, { unique: true });
 
 // Fund Model
 export const Fund = model('Fund', new Schema({

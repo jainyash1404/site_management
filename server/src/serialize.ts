@@ -34,15 +34,14 @@ export const siteOut = (s: any) => ({
 });
 
 export const categoryOut = (c: any) => ({
-  id: String(c._id),
+  id: String(c._id ?? c.id),
   name: c.name,
+  parentId: c.parentId
+    ? String(c.parentId._id ?? c.parentId)
+    : null,
   isActive: c.isActive,
-
-  subcategories: (c.subcategories ?? []).map((sub: any) => ({
-    id: String(sub._id),
-    name: sub.name,
-    isActive: sub.isActive,
-  })),
+  createdAt: c.createdAt,
+  updatedAt: c.updatedAt,
 });
 
 const pid = (x: any) => String(x?._id ?? x ?? '');

@@ -317,7 +317,8 @@ r.post(
 
         category: z.string()
           .trim()
-          .min(1, 'Category is required'),
+          .min(1, 'Category is required')
+          .max(500, 'Category path is too long'),
 
         subcategory: z.string()
           .trim()
@@ -457,49 +458,65 @@ r.post(
 
     // VALIDATE CATEGORY
 
-    const categoryDoc = await Category.findOne({
-      name: b.category,
-      isActive: true,
-    }).collation({
-      locale: 'en',
-      strength: 2,
-    });
+// ==========================================
+// VALIDATE UNLIMITED CATEGORY HIERARCHY
+// ==========================================
 
-    if (!categoryDoc) {
-      throw new HttpError(
-        400,
-        'Select a valid category',
-      );
-    }
+// Supports:
+// CIVIL
+// CIVIL / Civil Labour
+// CIVIL / Civil Labour / Mason
+// CIVIL / Civil Labour / Mason / Daily Wages
 
-    const activeSubcategories = (
-      categoryDoc.subcategories ?? []
-    ).filter(sub => sub.isActive);
+const categoryParts = b.category
+  .split('/')
+  .map(part => part.trim())
+  .filter(Boolean);
 
-    if (
-      activeSubcategories.length > 0 &&
-      !b.subcategory
-    ) {
-      throw new HttpError(
-        400,
-        'Select a subcategory',
-      );
-    }
+// Support legacy subcategory field if supplied
+const subcategoryParts = b.subcategory
+  ? b.subcategory
+      .split('/')
+      .map(part => part.trim())
+      .filter(Boolean)
+  : [];
 
-    if (b.subcategory) {
-      const valid = activeSubcategories.some(
-        sub =>
-          sub.name.trim().toLowerCase() ===
-          b.subcategory.trim().toLowerCase(),
-      );
+const categoryPathParts = [
+  ...categoryParts,
+  ...subcategoryParts,
+];
 
-      if (!valid) {
-        throw new HttpError(
-          400,
-          'Select a valid subcategory',
-        );
-      }
-    }
+if (!categoryPathParts.length) {
+  throw new HttpError(400, 'Select a valid category');
+}
+
+let parentId: any = null;
+
+const resolvedNames: string[] = [];
+
+for (const categoryName of categoryPathParts) {
+  const categoryDoc = await Category.findOne({
+    name: categoryName,
+    parentId,
+    isActive: true,
+  }).collation({
+    locale: 'en',
+    strength: 2,
+  });
+
+  if (!categoryDoc) {
+    throw new HttpError(
+      400,
+      `Invalid or inactive category: ${categoryName}`,
+    );
+  }
+
+  resolvedNames.push(categoryDoc.name);
+  parentId = categoryDoc._id;
+}
+
+// Save the complete hierarchy path
+const savedCategoryPath = resolvedNames.join(' / ');
 
     // RECEIPTS
 
@@ -536,8 +553,8 @@ r.post(
 
       expenseDate,
 
-      category: b.category,
-      subcategory: b.subcategory,
+      category: savedCategoryPath,
+      subcategory: '',
 
       amountPaise: b.amount,
 
@@ -572,8 +589,8 @@ r.post(
         workerId: expenseOwnerId,
         addedBy: currentUser.id,
         amountPaise: b.amount,
-        category: b.category,
-        subcategory: b.subcategory,
+        category: savedCategoryPath,
+        subcategory: '',
         expenseDate: selectedDate,
         status,
         receiptCount: receiptKeys.length,
