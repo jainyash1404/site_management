@@ -20,6 +20,7 @@ import {
   UserRound,
   Building2,
   CheckCircle2,
+  Download,
 } from 'lucide-react';
 
 import { E, errMsg, list, send } from '../api';
@@ -28,6 +29,7 @@ import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { inr } from '../lib/format';
 import type { Worker, Site } from '../types';
+import { exportExcel } from '../utils/exportExcel';
 
 type Filter = 'all' | 'active' | 'inactive';
 
@@ -147,6 +149,66 @@ export default function WorkersPage() {
       return matchesSearch && matchesFilter;
     });
   }, [workers, search, filter]);
+
+    const handleExportExcel = () => {
+    if (loading) {
+      toast('Please wait for workers to load.', 'err');
+      return;
+    }
+
+    if (filteredWorkers.length === 0) {
+      toast('No worker records available to export.', 'err');
+      return;
+    }
+
+    const exportData = filteredWorkers.map((worker, index) => ({
+      'S.No.': index + 1,
+      'Worker ID': worker.id,
+      'Worker Name': worker.name,
+      'Phone Number': worker.phone,
+      Email: worker.email || '—',
+
+      'Assigned Sites': (worker.assignedSites ?? [])
+        .map(siteId => {
+          const site = sitesData?.items?.find(
+            item => item.id === siteId
+          );
+
+          return site?.name || siteId;
+        })
+        .join(', ') || 'No sites assigned',
+
+      ...(canViewFunds && {
+        'Total Allocated (INR)': Number(worker.totalAllocated || 0),
+      }),
+
+      ...(canViewExpenses && {
+        'Approved Amount (INR)': Number(worker.approvedAmount || 0),
+        'Pending Amount (INR)': Number(worker.pendingAmount || 0),
+        'Rejected Amount (INR)': Number(worker.rejectedAmount || 0),
+      }),
+
+      ...(canViewBalance && {
+        'Available Balance (INR)': Number(worker.availableBalance || 0),
+      }),
+
+      Status: worker.isActive ? 'Active' : 'Inactive',
+
+      'Account Approval': worker.pendingApproval
+        ? 'Awaiting Approval'
+        : 'Approved',
+
+      'Password Reset Requested': worker.resetRequested ? 'Yes' : 'No',
+    }));
+
+    exportExcel(exportData, {
+      fileName: `Construction_Workers_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: 'Workers',
+      title: 'Construction Workforce Report',
+    });
+
+    toast('Worker Excel report downloaded successfully.');
+  };
 
   const openCreate = () => {
     if (!canCreate) return;
@@ -502,6 +564,15 @@ export default function WorkersPage() {
             >
               <RefreshCw size={15} />
               Refresh
+            </button>
+                        <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={loading || filteredWorkers.length === 0}
+              className="flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={16} />
+              Export Excel
             </button>
           </div>
         </div>

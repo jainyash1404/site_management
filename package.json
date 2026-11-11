@@ -9,5 +9,10 @@
     "build": "npm --prefix server run build && npm --prefix client run build",
     "test": "npm --prefix server test"
   },
-  "devDependencies": { "concurrently": "^9.0.0" }
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
 }

@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Banknote,
   CircleDollarSign,
+  Download,
 } from 'lucide-react';
 
 import { E, http, errMsg, list, send } from '../api';
@@ -29,6 +30,7 @@ import type { Fund, Site, Expense, Worker } from '../types';
 import { inr, fmtDate } from '../lib/format';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
+import { exportExcelWorkbook } from '../utils/exportExcel';
 
 type Tab = 'funds' | 'expenses' | 'workers' | 'activity';
 
@@ -227,6 +229,214 @@ const toast = useToast();
   // FUND FORM RESET
   // ==========================================
 
+  // ==========================================
+// EXPORT SITE FINANCIAL REPORT
+// ==========================================
+
+const handleExportExcel = () => {
+  if (!site) return;
+
+  if (fundLoading || expenseLoading || workerLoading) {
+    toast('Please wait for the site data to finish loading.', 'err');
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const safeSiteName = site.name
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .trim();
+
+  // ==========================================
+  // SHEET 1: FINANCIAL SUMMARY
+  // ==========================================
+
+  const financialSummary = [
+    {
+      Particulars: 'Site Name',
+      Value: site.name,
+    },
+    {
+      Particulars: 'Site Address',
+      Value: site.address || 'Not specified',
+    },
+    {
+      Particulars: 'Site Status',
+      Value: site.isCompleted
+        ? 'Completed'
+        : site.isActive
+          ? 'Active'
+          : 'Inactive',
+    },
+    {
+      Particulars: 'Report Date',
+      Value: today,
+    },
+    {
+      Particulars: 'Total Funds Received (INR)',
+      Value: totalReceived,
+    },
+    {
+      Particulars: 'Approved Expenses (INR)',
+      Value: approvedAmount,
+    },
+    {
+      Particulars: 'Recorded Expenses (INR)',
+      Value: recordedAmount,
+    },
+    {
+      Particulars: 'Total Spent (INR)',
+      Value: totalSpent,
+    },
+    {
+      Particulars: 'Pending Expenses (INR)',
+      Value: pendingAmount,
+    },
+    {
+      Particulars: 'Available Balance (INR)',
+      Value: availableBalance,
+    },
+    {
+      Particulars: 'Fund Utilization (%)',
+      Value: Number(utilization.toFixed(2)),
+    },
+    {
+      Particulars: 'Total Assigned Workers',
+      Value: workers.length,
+    },
+  ];
+
+  // ==========================================
+  // SHEET 2: FUND HISTORY
+  // ==========================================
+
+  const fundHistory = funds.map((fund, index) => ({
+    'S.No.': index + 1,
+    Date: fmtDate(fund.createdAt),
+    Contributor: fund.contributorName || fund.workerName || '—',
+    'Fund Type': fund.type || '—',
+    'Payment Mode':
+      paymentModes.find(mode => mode.value === fund.paymentMode)
+        ?.label || fund.paymentMode || '—',
+    'Added By': fund.createdByName || 'Admin',
+    'Amount (INR)': Number(fund.amount || 0),
+    Remarks: fund.notes || '—',
+  }));
+
+  // ==========================================
+  // SHEET 3: EXPENSE HISTORY
+  // ==========================================
+
+  const expenseHistory = expenses.map((expense, index) => ({
+    'S.No.': index + 1,
+    Date: fmtDate(expense.expenseDate || expense.createdAt),
+    Category: expense.category || 'Uncategorized',
+    Description: expense.description || '—',
+    Worker: expense.workerName || '—',
+    'Added By': expense.addedByName || 'Admin',
+    Status: expense.status,
+    'Amount (INR)': Number(expense.amount || 0),
+    'Included in Spending':
+      expense.status === 'APPROVED' ||
+      expense.status === 'RECORDED'
+        ? 'Yes'
+        : 'No',
+  }));
+
+  // ==========================================
+  // SHEET 4: WORKER DETAILS
+  // ==========================================
+
+  const workerDetails = workers.map((worker, index) => {
+    const paid = Number(worker.totalAllocated || 0);
+
+    const spent =
+      Number(worker.approvedAmount || 0) +
+      Number(worker.recordedAmount || 0);
+
+    const pending = Number(worker.pendingAmount || 0);
+
+    return {
+      'S.No.': index + 1,
+      'Worker Name': worker.name,
+      Phone: worker.phone || '—',
+      'Total Paid (INR)': paid,
+      'Total Spent (INR)': spent,
+      'Pending Expenses (INR)': pending,
+      'Remaining Balance (INR)': paid - spent,
+      Status:
+        worker.pendingApproval
+          ? 'Pending Approval'
+          : worker.isActive
+            ? 'Active'
+            : 'Inactive',
+    };
+  });
+
+  // ==========================================
+  // SHEET 5: CATEGORY SPENDING
+  // ==========================================
+
+  const categoryTotals = expenses
+    .filter(expense =>
+      expense.status === 'APPROVED' ||
+      expense.status === 'RECORDED'
+    )
+    .reduce<Record<string, number>>((result, expense) => {
+      const category = expense.category || 'Uncategorized';
+
+      result[category] =
+        (result[category] || 0) +
+        Number(expense.amount || 0);
+
+      return result;
+    }, {});
+
+  const categorySpending = Object.entries(categoryTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount], index) => ({
+      'S.No.': index + 1,
+      Category: category,
+      'Total Spent (INR)': amount,
+      'Percentage (%)':
+        totalSpent > 0
+          ? Number(((amount / totalSpent) * 100).toFixed(2))
+          : 0,
+    }));
+
+  // ==========================================
+  // GENERATE EXCEL WORKBOOK
+  // ==========================================
+
+  exportExcelWorkbook(
+    [
+      {
+        name: 'Financial Summary',
+        data: financialSummary,
+      },
+      {
+        name: 'Fund History',
+        data: fundHistory,
+      },
+      {
+        name: 'Expense History',
+        data: expenseHistory,
+      },
+      {
+        name: 'Worker Details',
+        data: workerDetails,
+      },
+      {
+        name: 'Category Spending',
+        data: categorySpending,
+      },
+    ],
+    `${safeSiteName}_Financial_Report_${today}`
+  );
+
+  toast('Site financial report downloaded successfully.', 'ok');
+};
+
   const resetFundForm = () => {
     setFundForm({
       contributorName: '',
@@ -394,6 +604,18 @@ const toast = useToast();
               }`}
             >
               <span className="h-2 w-2 rounded-full bg-current" />
+
+              {canViewFunds && canViewExpenses && (
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  disabled={fundLoading || expenseLoading || workerLoading}
+                  className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-950/20 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={17} />
+                  Export Excel
+                </button>
+              )}
 
               {site.isCompleted
                 ? 'Completed'

@@ -17,12 +17,14 @@ import {
   User,
   CreditCard,
   Trash2,
+  Download,
 } from 'lucide-react';
 
 import { E, errMsg, list, send } from '../api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
+import { exportExcel } from '../utils/exportExcel';
 
 import {
   Field,
@@ -200,6 +202,79 @@ export default function FundsPage() {
       return matchesSearch && matchesFilter;
     });
   }, [siteFunds, siteSearch, siteFilter]);
+
+  // ==========================================
+// EXPORT WORKER ALLOCATION HISTORY
+// ==========================================
+
+const handleExportWorkerFunds = () => {
+  if (loading) {
+    toast('Please wait for data to load.', 'err');
+    return;
+  }
+
+  if (filteredFunds.length === 0) {
+    toast('No worker allocation records available to export.', 'err');
+    return;
+  }
+
+  const exportData = filteredFunds.map((fund, index) => ({
+    'S.No.': index + 1,
+    Date: fmtDate(fund.createdAt),
+    Worker: fund.workerName || '—',
+    Site: fund.siteName || '—',
+    'Allocation Type': fund.type,
+    'Amount (INR)': Number(fund.amount || 0),
+    Notes: fund.notes || '—',
+  }));
+
+  exportExcel(exportData, {
+    fileName: `Worker_Allocation_History_${new Date().toISOString().slice(0, 10)}`,
+    sheetName: 'Worker Funds',
+    title: 'Worker Allocation History',
+  });
+
+  toast('Worker allocation Excel downloaded successfully.');
+};
+
+  // ==========================================
+// EXPORT SITE FUND HISTORY
+// ==========================================
+
+const handleExportSiteFunds = () => {
+  if (loading) {
+    toast('Please wait for data to load.', 'err');
+    return;
+  }
+
+  if (filteredSiteFunds.length === 0) {
+    toast('No site fund records available to export.', 'err');
+    return;
+  }
+
+  const exportData = filteredSiteFunds.map((fund, index) => ({
+    'S.No.': index + 1,
+    Contributor: fund.contributorName || '—',
+    Date: fmtDate(fund.createdAt),
+    Site: fund.siteName || '—',
+    'Payment Mode':
+      paymentModes[fund.paymentMode ?? 'CASH'] ||
+      fund.paymentMode ||
+      '—',
+    'Fund Type': fund.type,
+    'Amount (INR)': Number(fund.amount || 0),
+    'Added By': fund.createdByName || 'Admin',
+    Remarks: fund.notes || '—',
+  }));
+
+  exportExcel(exportData, {
+    fileName: `Site_Fund_History_${new Date().toISOString().slice(0, 10)}`,
+    sheetName: 'Site Funds',
+    title: 'Site Fund Allocation History',
+  });
+
+  toast('Site fund Excel downloaded successfully.');
+};
 
   const selectedWorker = workers.find(
     w => w.id === v.workerId,
@@ -746,6 +821,15 @@ export default function FundsPage() {
                 <option value="INITIAL">Initial</option>
                 <option value="ADDITIONAL">Additional</option>
               </select>
+              <button
+                type="button"
+                onClick={handleExportSiteFunds}
+                disabled={loading || filteredSiteFunds.length === 0}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download size={16} />
+                Export Excel
+              </button>
             </div>
           </div>
 
@@ -1033,6 +1117,15 @@ export default function FundsPage() {
                 <option value="INITIAL">Initial</option>
                 <option value="ADDITIONAL">Additional</option>
               </select>
+              <button
+                type="button"
+                onClick={handleExportWorkerFunds}
+                disabled={loading || filteredFunds.length === 0}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download size={16} />
+                Export Excel
+              </button>
             </div>
           </div>
 

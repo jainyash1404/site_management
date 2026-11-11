@@ -16,12 +16,14 @@ import {
   Plus,
   Users,
   Trash2,
+  Download,
 } from 'lucide-react';
 
 import { E, errMsg, list, send } from '../api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
+import { exportExcel } from '../utils/exportExcel';
 
 import {
   Async,
@@ -512,6 +514,62 @@ export default function ExpensesPage() {
   };
 
   const expenses = ex.data?.items ?? [];
+
+  // ==========================================
+// EXPORT EXPENSES TO EXCEL
+// ==========================================
+
+const handleExportExcel = () => {
+  if (ex.loading) {
+    toast('Please wait for expenses to load.', 'err');
+    return;
+  }
+
+  if (expenses.length === 0) {
+    toast('No expense records available to export.', 'err');
+    return;
+  }
+
+  const exportData = expenses.map((expense, index) => ({
+    'S.No.': index + 1,
+
+    Date: fmtDate(
+      expense.expenseDate || expense.createdAt
+    ),
+
+    'Expense For': expense.workerName || '—',
+
+    'Worker Role': expense.workerRole || '—',
+
+    'Added By': expense.addedByName || '—',
+
+    'Added By Role': expense.addedByRole || '—',
+
+    Site: expense.siteName || '—',
+
+    Category: expense.category || '—',
+
+    Subcategory: expense.subcategory || '—',
+
+    Description: expense.description || '—',
+
+    'Amount (INR)': Number(expense.amount || 0),
+
+    Status: expense.status,
+
+    'Review Note': expense.reviewNote || '—',
+
+    Receipts: getReceiptUrls(expense).join(', ') || '—',
+  }));
+
+  exportExcel(exportData, {
+    fileName: `Construction_Expenses_${new Date().toISOString().slice(0, 10)}`,
+    sheetName: 'Expenses',
+    title: 'Construction Expense Report',
+  });
+
+  toast('Expense Excel report downloaded successfully.');
+};
 
   // ==========================================
   // STATISTICS
@@ -1043,10 +1101,24 @@ export default function ExpensesPage() {
               </p>
             </div>
 
+            <div className="flex flex-wrap items-center gap-3">
+
             <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
               <FileText size={15} />
               {expenses.length} Records
             </div>
+
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={ex.loading || expenses.length === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={16} />
+              Export Excel
+            </button>
+
+          </div>
 
           </div>
 

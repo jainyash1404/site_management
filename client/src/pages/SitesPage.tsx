@@ -15,10 +15,12 @@ import {
   Trash2,
   X,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 
 import { E, errMsg, list, send } from '../api';
 import { useApi } from '../hooks/useApi';
+import { exportExcel } from '../utils/exportExcel';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import type { Site } from '../types';
@@ -109,6 +111,32 @@ export default function SitesPage() {
       return matchesSearch && matchesFilter;
     });
   }, [sites, search, filter]);
+
+    // EXPORT SITES TO EXCEL
+  const handleExportExcel = () => {
+    const exportData = filteredSites.map((site, index) => ({
+      'S.No.': index + 1,
+      'Site ID': site.id,
+      'Site Name': site.name,
+      'Address': site.address || '—',
+      'Description': site.description || '—',
+      'Status': site.isCompleted
+        ? 'Completed'
+        : site.isActive
+          ? 'Active'
+          : 'Inactive',
+      'Is Active': site.isActive ? 'Yes' : 'No',
+      'Is Completed': site.isCompleted ? 'Yes' : 'No',
+    }));
+
+    exportExcel(exportData, {
+      fileName: `Construction_Sites_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: 'Sites',
+      title: 'Construction Sites Report',
+    });
+
+    toast('Sites Excel report downloaded successfully');
+  };
 
   // OPEN CREATE MODAL
   const openCreate = () => {
@@ -534,6 +562,15 @@ export default function SitesPage() {
               <option value="inactive">Inactive</option>
               <option value="completed">Completed</option>
             </select>
+
+                        <button
+              onClick={handleExportExcel}
+              disabled={loading || filteredSites.length === 0}
+              className="flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={16} />
+              Export Excel
+            </button>
 
           </div>
 
