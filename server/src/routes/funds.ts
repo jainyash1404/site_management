@@ -46,11 +46,6 @@ const paymentModeSchema = z.enum([
   'OTHER',
 ]);
 
-const typeSchema = z.enum([
-  'INITIAL',
-  'ADDITIONAL',
-]);
-
 // ==========================================
 // GET ALL FUNDS
 // ==========================================
@@ -127,8 +122,6 @@ r.post(
           .optional(),
 
         amount: money,
-
-        type: typeSchema,
 
         paymentMode: paymentModeSchema
           .default('CASH'),
@@ -228,8 +221,6 @@ r.post(
 
       amountPaise: b.amount,
 
-      type: b.type,
-
       paymentMode: b.paymentMode,
 
       notes: b.notes ?? '',
@@ -264,8 +255,6 @@ r.post(
         contributorName: b.contributorName,
 
         amountPaise: b.amount,
-
-        type: b.type,
 
         paymentMode: b.paymentMode,
       },
@@ -325,9 +314,7 @@ r.delete(
 
         contributorName: fund.contributorName,
 
-        amountPaise: fund.amountPaise,
-
-        type: fund.type,
+        amountPaise: fund.amountPaise,        
 
         paymentMode: fund.paymentMode,
       },

@@ -13,13 +13,12 @@ import {
   Loader2,
   Building2,
   FileText,
-  CheckCircle2,
   MapPin,
   Receipt,
+  CheckCircle2,
   HardHat,
   Clock,
   CalendarDays,
-  TrendingUp,
   Banknote,
   CircleDollarSign,
   Download,
@@ -80,7 +79,6 @@ const toast = useToast();
   const [fundForm, setFundForm] = useState({
     contributorName: '',
     amount: '',
-    type: 'INITIAL' as 'INITIAL' | 'ADDITIONAL',
     paymentMode: 'CASH',
     notes: '',
   });
@@ -175,11 +173,7 @@ const toast = useToast();
       setWorkerLoading(false);
     }
   }, [id, toast]);
-
-  // ==========================================
-  // INITIAL LOAD
-  // ==========================================
-
+  
   useEffect(() => {
     loadSite();
     loadFunds();
@@ -314,7 +308,6 @@ const handleExportExcel = () => {
     'S.No.': index + 1,
     Date: fmtDate(fund.createdAt),
     Contributor: fund.contributorName || fund.workerName || '—',
-    'Fund Type': fund.type || '—',
     'Payment Mode':
       paymentModes.find(mode => mode.value === fund.paymentMode)
         ?.label || fund.paymentMode || '—',
@@ -441,7 +434,6 @@ const handleExportExcel = () => {
     setFundForm({
       contributorName: '',
       amount: '',
-      type: 'INITIAL',
       paymentMode: 'CASH',
       notes: '',
     });
@@ -483,7 +475,6 @@ const handleExportExcel = () => {
         siteId: id,
         contributorName: fundForm.contributorName.trim(),
         amount,
-        type: fundForm.type,
         paymentMode: fundForm.paymentMode,
         notes: fundForm.notes.trim(),
       });
@@ -717,10 +708,10 @@ const handleExportExcel = () => {
 
           {/* FUND SUMMARY */}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
             <SummaryCard
-              title="Total Received"
+              title="Total Funds Received"
               amount={totalReceived}
               icon={<Wallet size={21} />}
               color="indigo"
@@ -728,22 +719,10 @@ const handleExportExcel = () => {
             />
 
             <SummaryCard
-              title="Initial Funds"
-              amount={funds
-                .filter(f => f.type === 'INITIAL')
-                .reduce((sum, f) => sum + Number(f.amount || 0), 0)}
-              icon={<CheckCircle2 size={21} />}
+              title="Total Fund Records"
+              value={String(funds.length)}
+              icon={<Receipt size={21} />}
               color="emerald"
-              loading={fundLoading}
-            />
-
-            <SummaryCard
-              title="Additional Funds"
-              amount={funds
-                .filter(f => f.type === 'ADDITIONAL')
-                .reduce((sum, f) => sum + Number(f.amount || 0), 0)}
-              icon={<TrendingUp size={21} />}
-              color="blue"
               loading={fundLoading}
             />
 
@@ -1381,22 +1360,6 @@ const handleExportExcel = () => {
                   />
 
                 </div>
-              </FormField>
-
-              <FormField label="Fund Type" required>
-                <select
-                  value={fundForm.type}
-                  onChange={event =>
-                    setFundForm(prev => ({
-                      ...prev,
-                      type: event.target.value as 'INITIAL' | 'ADDITIONAL',
-                    }))
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-                >
-                  <option value="INITIAL">Initial Allocation</option>
-                  <option value="ADDITIONAL">Additional Funds</option>
-                </select>
               </FormField>
 
               <FormField label="Payment Mode" required>

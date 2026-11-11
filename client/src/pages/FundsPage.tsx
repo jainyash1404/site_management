@@ -9,7 +9,6 @@ import {
   Building2,
   IndianRupee,
   Clock,
-  CheckCircle2,
   ArrowUpRight,
   RefreshCw,
   Receipt,
@@ -35,8 +34,6 @@ import {
 import { fmtDate, inr } from '../lib/format';
 
 import type { Fund, Site, Worker } from '../types';
-
-type Filter = 'ALL' | 'INITIAL' | 'ADDITIONAL';
 
 type PaymentMode =
   | 'CASH'
@@ -83,7 +80,6 @@ export default function FundsPage() {
   const workers = data?.w ?? [];
   const sites = data?.s ?? [];
 
-  // Separate records
   const workerFunds = funds.filter(f => !!f.workerId);
   const siteFunds = funds.filter(
     f => !!f.siteId && !!f.contributorName,
@@ -94,7 +90,6 @@ export default function FundsPage() {
     workerId: '',
     siteId: '',
     amount: '',
-    type: 'INITIAL' as 'INITIAL' | 'ADDITIONAL',
     notes: '',
   });
 
@@ -103,7 +98,6 @@ export default function FundsPage() {
     contributorName: '',
     siteId: '',
     amount: '',
-    type: 'INITIAL' as 'INITIAL' | 'ADDITIONAL',
     paymentMode: 'CASH' as PaymentMode,
     notes: '',
   });
@@ -119,24 +113,13 @@ export default function FundsPage() {
 
   // SEARCH
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<Filter>('ALL');
-
   const [siteSearch, setSiteSearch] = useState('');
-  const [siteFilter, setSiteFilter] = useState<Filter>('ALL');
 
   // DELETE
   const [deleteFund, setDeleteFund] = useState<Fund | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // STATISTICS - WORKER
-  const workerInitial = workerFunds
-    .filter(f => f.type === 'INITIAL')
-    .reduce((sum, f) => sum + Number(f.amount || 0), 0);
-
-  const workerAdditional = workerFunds
-    .filter(f => f.type === 'ADDITIONAL')
-    .reduce((sum, f) => sum + Number(f.amount || 0), 0);
-
+  // STATISTICS
   const workerTotal = workerFunds.reduce(
     (sum, f) => sum + Number(f.amount || 0),
     0,
@@ -145,15 +128,6 @@ export default function FundsPage() {
   const fundedWorkers = new Set(
     workerFunds.map(f => f.workerId).filter(Boolean),
   ).size;
-
-  // STATISTICS - SITE
-  const siteInitial = siteFunds
-    .filter(f => f.type === 'INITIAL')
-    .reduce((sum, f) => sum + Number(f.amount || 0), 0);
-
-  const siteAdditional = siteFunds
-    .filter(f => f.type === 'ADDITIONAL')
-    .reduce((sum, f) => sum + Number(f.amount || 0), 0);
 
   const siteTotal = siteFunds.reduce(
     (sum, f) => sum + Number(f.amount || 0),
@@ -164,117 +138,99 @@ export default function FundsPage() {
     siteFunds.map(f => f.siteId).filter(Boolean),
   ).size;
 
-  // WORKER HISTORY FILTER
+  // WORKER HISTORY SEARCH
   const filteredFunds = useMemo(() => {
     return workerFunds.filter(f => {
       const q = search.trim().toLowerCase();
 
-      const matchesSearch =
+      return (
         !q ||
         (f.workerName ?? '').toLowerCase().includes(q) ||
         (f.siteName ?? '').toLowerCase().includes(q) ||
-        (f.notes ?? '').toLowerCase().includes(q) ||
-        f.type.toLowerCase().includes(q);
-
-      const matchesFilter =
-        filter === 'ALL' || f.type === filter;
-
-      return matchesSearch && matchesFilter;
+        (f.notes ?? '').toLowerCase().includes(q)
+      );
     });
-  }, [workerFunds, search, filter]);
+  }, [workerFunds, search]);
 
-  // SITE HISTORY FILTER
+  // SITE HISTORY SEARCH
   const filteredSiteFunds = useMemo(() => {
     return siteFunds.filter(f => {
       const q = siteSearch.trim().toLowerCase();
 
-      const matchesSearch =
+      return (
         !q ||
         (f.contributorName ?? '').toLowerCase().includes(q) ||
         (f.siteName ?? '').toLowerCase().includes(q) ||
         (f.notes ?? '').toLowerCase().includes(q) ||
-        (f.paymentMode ?? '').toLowerCase().includes(q) ||
-        f.type.toLowerCase().includes(q);
-
-      const matchesFilter =
-        siteFilter === 'ALL' || f.type === siteFilter;
-
-      return matchesSearch && matchesFilter;
+        (f.paymentMode ?? '').toLowerCase().includes(q)
+      );
     });
-  }, [siteFunds, siteSearch, siteFilter]);
+  }, [siteFunds, siteSearch]);
 
-  // ==========================================
-// EXPORT WORKER ALLOCATION HISTORY
-// ==========================================
+  // EXPORT WORKER ALLOCATION HISTORY
+  const handleExportWorkerFunds = () => {
+    if (loading) {
+      toast('Please wait for data to load.', 'err');
+      return;
+    }
 
-const handleExportWorkerFunds = () => {
-  if (loading) {
-    toast('Please wait for data to load.', 'err');
-    return;
-  }
+    if (filteredFunds.length === 0) {
+      toast('No worker allocation records available to export.', 'err');
+      return;
+    }
 
-  if (filteredFunds.length === 0) {
-    toast('No worker allocation records available to export.', 'err');
-    return;
-  }
+    const exportData = filteredFunds.map((fund, index) => ({
+      'S.No.': index + 1,
+      Date: fmtDate(fund.createdAt),
+      Worker: fund.workerName || '—',
+      Site: fund.siteName || '—',
+      'Amount (INR)': Number(fund.amount || 0),
+      Notes: fund.notes || '—',
+    }));
 
-  const exportData = filteredFunds.map((fund, index) => ({
-    'S.No.': index + 1,
-    Date: fmtDate(fund.createdAt),
-    Worker: fund.workerName || '—',
-    Site: fund.siteName || '—',
-    'Allocation Type': fund.type,
-    'Amount (INR)': Number(fund.amount || 0),
-    Notes: fund.notes || '—',
-  }));
+    exportExcel(exportData, {
+      fileName: `Worker_Allocation_History_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: 'Worker Funds',
+      title: 'Worker Allocation History',
+    });
 
-  exportExcel(exportData, {
-    fileName: `Worker_Allocation_History_${new Date().toISOString().slice(0, 10)}`,
-    sheetName: 'Worker Funds',
-    title: 'Worker Allocation History',
-  });
+    toast('Worker allocation Excel downloaded successfully.');
+  };
 
-  toast('Worker allocation Excel downloaded successfully.');
-};
+  // EXPORT SITE FUND HISTORY
+  const handleExportSiteFunds = () => {
+    if (loading) {
+      toast('Please wait for data to load.', 'err');
+      return;
+    }
 
-  // ==========================================
-// EXPORT SITE FUND HISTORY
-// ==========================================
+    if (filteredSiteFunds.length === 0) {
+      toast('No site fund records available to export.', 'err');
+      return;
+    }
 
-const handleExportSiteFunds = () => {
-  if (loading) {
-    toast('Please wait for data to load.', 'err');
-    return;
-  }
+    const exportData = filteredSiteFunds.map((fund, index) => ({
+      'S.No.': index + 1,
+      Contributor: fund.contributorName || '—',
+      Date: fmtDate(fund.createdAt),
+      Site: fund.siteName || '—',
+      'Payment Mode':
+        paymentModes[fund.paymentMode ?? 'CASH'] ||
+        fund.paymentMode ||
+        '—',
+      'Amount (INR)': Number(fund.amount || 0),
+      'Added By': fund.createdByName || 'Admin',
+      Remarks: fund.notes || '—',
+    }));
 
-  if (filteredSiteFunds.length === 0) {
-    toast('No site fund records available to export.', 'err');
-    return;
-  }
+    exportExcel(exportData, {
+      fileName: `Site_Fund_History_${new Date().toISOString().slice(0, 10)}`,
+      sheetName: 'Site Funds',
+      title: 'Site Fund Allocation History',
+    });
 
-  const exportData = filteredSiteFunds.map((fund, index) => ({
-    'S.No.': index + 1,
-    Contributor: fund.contributorName || '—',
-    Date: fmtDate(fund.createdAt),
-    Site: fund.siteName || '—',
-    'Payment Mode':
-      paymentModes[fund.paymentMode ?? 'CASH'] ||
-      fund.paymentMode ||
-      '—',
-    'Fund Type': fund.type,
-    'Amount (INR)': Number(fund.amount || 0),
-    'Added By': fund.createdByName || 'Admin',
-    Remarks: fund.notes || '—',
-  }));
-
-  exportExcel(exportData, {
-    fileName: `Site_Fund_History_${new Date().toISOString().slice(0, 10)}`,
-    sheetName: 'Site Funds',
-    title: 'Site Fund Allocation History',
-  });
-
-  toast('Site fund Excel downloaded successfully.');
-};
+    toast('Site fund Excel downloaded successfully.');
+  };
 
   const selectedWorker = workers.find(
     w => w.id === v.workerId,
@@ -343,7 +299,6 @@ const handleExportSiteFunds = () => {
         workerId: v.workerId,
         siteId: v.siteId || undefined,
         amount: Number(v.amount),
-        type: v.type,
         notes: v.notes.trim() || undefined,
       });
 
@@ -353,7 +308,6 @@ const handleExportSiteFunds = () => {
         workerId: '',
         siteId: '',
         amount: '',
-        type: 'INITIAL',
         notes: '',
       });
 
@@ -406,7 +360,6 @@ const handleExportSiteFunds = () => {
         siteId: siteForm.siteId,
         contributorName: siteForm.contributorName.trim(),
         amount: Number(siteForm.amount),
-        type: siteForm.type,
         paymentMode: siteForm.paymentMode,
         notes: siteForm.notes.trim() || undefined,
       });
@@ -417,7 +370,6 @@ const handleExportSiteFunds = () => {
         contributorName: '',
         siteId: '',
         amount: '',
-        type: 'INITIAL',
         paymentMode: 'CASH',
         notes: '',
       });
@@ -468,20 +420,6 @@ const handleExportSiteFunds = () => {
       color: 'bg-blue-50 text-blue-600',
     },
     {
-      title: 'Initial Allocations',
-      value: inr(workerInitial),
-      description: 'First-time allocations',
-      icon: CheckCircle2,
-      color: 'bg-emerald-50 text-emerald-600',
-    },
-    {
-      title: 'Additional Funds',
-      value: inr(workerAdditional),
-      description: 'Extra funds distributed',
-      icon: TrendingUp,
-      color: 'bg-violet-50 text-violet-600',
-    },
-    {
       title: 'Workers Funded',
       value: fundedWorkers,
       description: 'Unique workers receiving funds',
@@ -497,20 +435,6 @@ const handleExportSiteFunds = () => {
       description: 'Funds received by sites',
       icon: Wallet,
       color: 'bg-blue-50 text-blue-600',
-    },
-    {
-      title: 'Initial Funds',
-      value: inr(siteInitial),
-      description: 'Initial site allocations',
-      icon: CheckCircle2,
-      color: 'bg-emerald-50 text-emerald-600',
-    },
-    {
-      title: 'Additional Funds',
-      value: inr(siteAdditional),
-      description: 'Additional site funds',
-      icon: TrendingUp,
-      color: 'bg-violet-50 text-violet-600',
     },
     {
       title: 'Sites Funded',
@@ -559,7 +483,7 @@ const handleExportSiteFunds = () => {
   return (
     <div className="mx-auto max-w-[1500px] space-y-6 pb-10">
 
-      {/* HEADER - ORIGINAL STYLE */}
+      {/* HEADER */}
       <section className="relative overflow-hidden rounded-2xl bg-slate-950 p-7 text-white">
         <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full border-[40px] border-white/5" />
         <div className="absolute bottom-[-100px] right-[25%] h-60 w-60 rounded-full bg-blue-600/10 blur-3xl" />
@@ -648,7 +572,7 @@ const handleExportSiteFunds = () => {
         </section>
       )}
 
-      {/* SITE FUND ALLOCATION FORM */}
+      {/* SITE FUND FORM */}
       {canAllocateFunds && (
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center gap-3 border-b border-slate-100 p-6">
@@ -713,22 +637,6 @@ const handleExportSiteFunds = () => {
                     }}
                   />
                 </div>
-              </Field>
-
-              <Field label="Fund Type *">
-                <select
-                  className={input}
-                  value={siteForm.type}
-                  onChange={e =>
-                    setSiteForm({
-                      ...siteForm,
-                      type: e.target.value as 'INITIAL' | 'ADDITIONAL',
-                    })
-                  }
-                >
-                  <option value="INITIAL">Initial Funds</option>
-                  <option value="ADDITIONAL">Additional Funds</option>
-                </select>
               </Field>
 
               <Field label="Payment Mode *">
@@ -812,15 +720,6 @@ const handleExportSiteFunds = () => {
                 />
               </div>
 
-              <select
-                value={siteFilter}
-                onChange={e => setSiteFilter(e.target.value as Filter)}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500"
-              >
-                <option value="ALL">All Allocations</option>
-                <option value="INITIAL">Initial</option>
-                <option value="ADDITIONAL">Additional</option>
-              </select>
               <button
                 type="button"
                 onClick={handleExportSiteFunds}
@@ -846,7 +745,6 @@ const handleExportSiteFunds = () => {
                     <th className="px-5 py-4">Date</th>
                     <th className="px-5 py-4">Site</th>
                     <th className="px-5 py-4">Payment Mode</th>
-                    <th className="px-5 py-4">Type</th>
                     <th className="px-5 py-4">Amount</th>
                     <th className="px-5 py-4">Remarks</th>
                     {canAllocateFunds && <th className="px-5 py-4">Actions</th>}
@@ -870,15 +768,6 @@ const handleExportSiteFunds = () => {
                       <td className="px-5 py-4 text-sm text-slate-600">
                         <CreditCard size={14} className="mr-1 inline" />
                         {paymentModes[f.paymentMode ?? 'CASH']}
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                          f.type === 'INITIAL'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-blue-50 text-blue-700'
-                        }`}>
-                          {f.type === 'INITIAL' ? 'Initial' : 'Additional'}
-                        </span>
                       </td>
                       <td className="whitespace-nowrap px-5 py-4 text-sm font-bold text-emerald-700">
                         {inr(f.amount)}
@@ -910,7 +799,7 @@ const handleExportSiteFunds = () => {
         </section>
       )}
 
-      {/* WORKER FINANCIAL SUMMARY - ORIGINAL UI */}
+      {/* WORKER SUMMARY */}
       {canViewFunds && (
         <section>
           <div className="mb-4">
@@ -926,7 +815,7 @@ const handleExportSiteFunds = () => {
         </section>
       )}
 
-      {/* WORKER ALLOCATION FORM - ORIGINAL UI */}
+      {/* WORKER ALLOCATION FORM */}
       {canAllocateFunds && (
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center gap-3 border-b border-slate-100 p-6">
@@ -1002,22 +891,6 @@ const handleExportSiteFunds = () => {
                   />
                 </div>
               </Field>
-
-              <Field label="Allocation Type *">
-                <select
-                  className={input}
-                  value={v.type}
-                  onChange={e =>
-                    setV({
-                      ...v,
-                      type: e.target.value as 'INITIAL' | 'ADDITIONAL',
-                    })
-                  }
-                >
-                  <option value="INITIAL">Initial Allocation</option>
-                  <option value="ADDITIONAL">Additional Funds</option>
-                </select>
-              </Field>
             </div>
 
             <Field label="Transaction Notes (Optional)">
@@ -1041,13 +914,6 @@ const handleExportSiteFunds = () => {
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {selectedWorker.phone}
-                  </p>
-                </div>
-
-                <div className="ml-auto text-right">
-                  <p className="text-xs text-slate-500">Allocation Type</p>
-                  <p className="mt-1 text-sm font-semibold text-blue-700">
-                    {v.type === 'INITIAL' ? 'Initial' : 'Additional'}
                   </p>
                 </div>
               </div>
@@ -1108,15 +974,6 @@ const handleExportSiteFunds = () => {
                 />
               </div>
 
-              <select
-                value={filter}
-                onChange={e => setFilter(e.target.value as Filter)}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500"
-              >
-                <option value="ALL">All Allocations</option>
-                <option value="INITIAL">Initial</option>
-                <option value="ADDITIONAL">Additional</option>
-              </select>
               <button
                 type="button"
                 onClick={handleExportWorkerFunds}
@@ -1152,7 +1009,6 @@ const handleExportSiteFunds = () => {
                     <th className="px-6 py-4">Date</th>
                     <th className="px-6 py-4">Worker</th>
                     <th className="px-6 py-4">Site</th>
-                    <th className="px-6 py-4">Type</th>
                     <th className="px-6 py-4">Amount</th>
                     <th className="px-6 py-4">Notes</th>
                     {canAllocateFunds && <th className="px-6 py-4">Actions</th>}
@@ -1174,16 +1030,6 @@ const handleExportSiteFunds = () => {
                       <td className="px-6 py-5 text-sm text-slate-600">
                         <Building2 size={15} className="mr-2 inline text-slate-400" />
                         {f.siteName || '—'}
-                      </td>
-
-                      <td className="px-6 py-5">
-                        <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                          f.type === 'INITIAL'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-blue-50 text-blue-700'
-                        }`}>
-                          {f.type === 'INITIAL' ? 'Initial' : 'Additional'}
-                        </span>
                       </td>
 
                       <td className="whitespace-nowrap px-6 py-5 text-sm font-bold text-emerald-700">
@@ -1274,13 +1120,6 @@ const handleExportSiteFunds = () => {
                 <span className="font-semibold">{selectedWorkerSite?.name || 'None'}</span>
               </div>
 
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Type</span>
-                <span className="font-semibold">
-                  {v.type === 'INITIAL' ? 'Initial Allocation' : 'Additional Funds'}
-                </span>
-              </div>
-
               <div className="flex justify-between border-t border-slate-200 pt-3 text-sm">
                 <span className="font-semibold">Total Amount</span>
                 <span className="text-lg font-bold text-emerald-700">
@@ -1358,13 +1197,6 @@ const handleExportSiteFunds = () => {
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">Payment Mode</span>
                 <span className="font-semibold">{paymentModes[siteForm.paymentMode]}</span>
-              </div>
-
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Type</span>
-                <span className="font-semibold">
-                  {siteForm.type === 'INITIAL' ? 'Initial Funds' : 'Additional Funds'}
-                </span>
               </div>
 
               <div className="flex justify-between border-t border-slate-200 pt-3 text-sm">

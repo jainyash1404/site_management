@@ -95,8 +95,6 @@ export interface Fund {
 
   amount: number;
 
-  type: 'INITIAL' | 'ADDITIONAL';
-
   paymentMode?:
     | 'CASH'
     | 'UPI'

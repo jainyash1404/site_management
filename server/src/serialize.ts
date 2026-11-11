@@ -59,8 +59,6 @@ export const fundOut = (f: any) => ({
 
   amount: f.amountPaise / 100,
 
-  type: f.type,
-
   paymentMode: f.paymentMode || 'CASH',
 
   notes: f.notes || '',

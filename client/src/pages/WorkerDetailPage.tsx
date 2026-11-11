@@ -76,8 +76,7 @@ export default function WorkerDetailPage() {
     return data.f.filter((f) =>
       !q ||
       (f.siteName || '').toLowerCase().includes(q) ||
-      (f.notes || '').toLowerCase().includes(q) ||
-      (f.type || '').toLowerCase().includes(q)
+      (f.notes || '').toLowerCase().includes(q)
     );
   }, [data, fundSearch, canViewFunds]);
 
@@ -277,16 +276,7 @@ export default function WorkerDetailPage() {
                           </span>
                         </Td>
 
-                        <Td>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                            f.type === 'INITIAL'
-                              ? 'bg-blue-50 text-blue-700'
-                              : 'bg-purple-50 text-purple-700'
-                          }`}>
-                            {f.type === 'INITIAL' ? 'Initial' : 'Additional'}
-                          </span>
-                        </Td>
-
+                        
                         <Td>
                           <span className="font-semibold text-slate-900">
                             {inr(f.amount)}

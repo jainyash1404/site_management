@@ -203,12 +203,6 @@ export const Fund = model('Fund', new Schema({
 
   amountPaise: paise,
 
-  type: {
-    type: String,
-    enum: ['INITIAL', 'ADDITIONAL'],
-    required: true,
-  },
-
   paymentMode: {
     type: String,
     enum: ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'],
