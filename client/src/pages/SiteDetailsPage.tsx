@@ -51,7 +51,7 @@ export default function SiteDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const { toast } = useToast();
+const toast = useToast();
   const { hasPermission } = useAuth();
 
   const canAllocateFunds = hasPermission('funds.allocate');
