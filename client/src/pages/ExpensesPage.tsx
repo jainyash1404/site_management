@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Plus,
   Users,
+  Trash2,
 } from 'lucide-react';
 
 import { E, errMsg, list, send } from '../api';
@@ -58,6 +59,7 @@ export default function ExpensesPage() {
   const canViewExpenses = hasPermission('expenses.view');
   const canApprove = hasPermission('expenses.approve');
   const canReject = hasPermission('expenses.reject');
+  const canDelete = hasPermission('expenses.delete');
 
   const canViewWorkers = hasPermission('workers.view');
   const canViewSites = hasPermission('sites.view');
@@ -103,6 +105,7 @@ export default function ExpensesPage() {
       from: '',
       to: '',
     });
+
     setFilterCategoryIds([]);
   };
 
@@ -367,12 +370,10 @@ export default function ExpensesPage() {
 
     data.append(
       'amount',
-      String(Math.round(numericAmount * 100))
+      String(numericAmount)
     );
 
-    // Save complete hierarchy path.
     data.append('category', category);
-
     data.append('expenseDate', expenseDate);
 
     if (mode === 'worker') {
@@ -457,6 +458,42 @@ export default function ExpensesPage() {
       toast(errMsg(error), 'err');
     } finally {
       setBusy(false);
+    }
+  };
+
+  // ==========================================
+  // DELETE EXPENSE
+  // ==========================================
+
+  const [deleteExpense, setDeleteExpense] =
+    useState<Expense | null>(null);
+
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDeleteExpense = async () => {
+    if (
+      !deleteExpense ||
+      deleting ||
+      !canDelete
+    ) return;
+
+    setDeleting(true);
+
+    try {
+      await send(
+        'delete',
+        `${E.expenses}/${deleteExpense.id}`
+      );
+
+      toast('Expense deleted successfully');
+
+      setDeleteExpense(null);
+
+      ex.reload();
+    } catch (error) {
+      toast(errMsg(error), 'err');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -872,8 +909,6 @@ export default function ExpensesPage() {
 
             {/* HIERARCHICAL CATEGORY FILTER */}
 
-            {/* CASCADING CATEGORY FILTER */}
-
             {canViewCategories && (
               <div className="space-y-2">
 
@@ -1125,48 +1160,62 @@ export default function ExpensesPage() {
                     </Td>
 
                     <Td>
-                      {e.status === 'PENDING' &&
-                      (canApprove || canReject) ? (
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
 
-                          {canApprove && (
-                            <Button
-                              variant="success"
-                              className="!px-2 !py-1 text-xs"
-                              onClick={() =>
-                                setRv({
-                                  e,
-                                  action: 'APPROVED',
-                                })
-                              }
-                            >
-                              Approve
-                            </Button>
+                        {e.status === 'PENDING' &&
+                        (canApprove || canReject) && (
+                          <>
+                            {canApprove && (
+                              <Button
+                                variant="success"
+                                className="!px-2 !py-1 text-xs"
+                                onClick={() =>
+                                  setRv({
+                                    e,
+                                    action: 'APPROVED',
+                                  })
+                                }
+                              >
+                                Approve
+                              </Button>
+                            )}
+
+                            {canReject && (
+                              <Button
+                                variant="danger"
+                                className="!px-2 !py-1 text-xs"
+                                onClick={() =>
+                                  setRv({
+                                    e,
+                                    action: 'REJECTED',
+                                  })
+                                }
+                              >
+                                Reject
+                              </Button>
+                            )}
+                          </>
+                        )}
+
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteExpense(e)}
+                            title="Delete Expense"
+                            className="rounded-lg border border-red-200 p-2 text-red-600 transition hover:bg-red-50"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+
+                        {!canDelete &&
+                          e.status !== 'PENDING' && (
+                            <span className="text-xs text-slate-400">
+                              —
+                            </span>
                           )}
 
-                          {canReject && (
-                            <Button
-                              variant="danger"
-                              className="!px-2 !py-1 text-xs"
-                              onClick={() =>
-                                setRv({
-                                  e,
-                                  action: 'REJECTED',
-                                })
-                              }
-                            >
-                              Reject
-                            </Button>
-                          )}
-
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">
-                          {e.status === 'PENDING'
-                            ? 'Awaiting review'
-                            : '—'}
-                        </span>
-                      )}
+                      </div>
                     </Td>
 
                   </tr>
@@ -1305,6 +1354,17 @@ export default function ExpensesPage() {
                     </div>
                   )}
 
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteExpense(e)}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 size={16} />
+                      Delete Expense
+                    </button>
+                  )}
+
                 </div>
               ))}
 
@@ -1347,8 +1407,6 @@ export default function ExpensesPage() {
 
           <div className="space-y-4">
 
-            {/* WORKER */}
-
             {mode === 'worker' && (
               <Field label="Select Worker">
 
@@ -1378,8 +1436,6 @@ export default function ExpensesPage() {
 
               </Field>
             )}
-
-            {/* SITE */}
 
             <Field label="Construction Site">
 
@@ -1415,8 +1471,6 @@ export default function ExpensesPage() {
 
             <Field label="Category">
 
-              {/* MAIN CATEGORY */}
-
               {selectedCategoryIds.length === 0 && (
                 <select
                   className={input}
@@ -1446,8 +1500,6 @@ export default function ExpensesPage() {
 
                 </select>
               )}
-
-              {/* CHILD LEVELS */}
 
               {selectedCategoryIds.map((id, index) => {
                 const children = getChildren(id);
@@ -1496,8 +1548,6 @@ export default function ExpensesPage() {
                 );
               })}
 
-              {/* SELECTED PATH */}
-
               {selectedCategoryIds.length > 0 && (
                 <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
 
@@ -1524,8 +1574,6 @@ export default function ExpensesPage() {
 
             </Field>
 
-            {/* DATE */}
-
             <Field label="Actual Expense Date">
 
               <input
@@ -1544,8 +1592,6 @@ export default function ExpensesPage() {
 
             </Field>
 
-            {/* AMOUNT */}
-
             <Field label="Amount (₹)">
 
               <input
@@ -1562,8 +1608,6 @@ export default function ExpensesPage() {
 
             </Field>
 
-            {/* DESCRIPTION */}
-
             <Field label="Description (Optional)">
 
               <textarea
@@ -1578,8 +1622,6 @@ export default function ExpensesPage() {
               />
 
             </Field>
-
-            {/* RECEIPTS */}
 
             <Field label="Receipts (Maximum 5 images)">
 
@@ -1620,8 +1662,6 @@ export default function ExpensesPage() {
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
               This expense will be directly recorded without approval.
             </div>
-
-            {/* ACTIONS */}
 
             <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
 
@@ -1703,6 +1743,24 @@ export default function ExpensesPage() {
           </label>
 
         </Confirm>
+      )}
+
+      {/* DELETE CONFIRMATION */}
+
+      {deleteExpense && (
+        <Confirm
+          title="Delete Expense?"
+          variant="danger"
+          confirmText="Delete Permanently"
+          busy={deleting}
+          message={`Are you sure you want to permanently delete this expense of ${inr(deleteExpense.amount)} under ${deleteExpense.category}? This action cannot be undone.`}
+          onConfirm={confirmDeleteExpense}
+          onCancel={() => {
+            if (!deleting) {
+              setDeleteExpense(null);
+            }
+          }}
+        />
       )}
 
     </div>

@@ -40,6 +40,7 @@ export const ADMIN_PERMISSIONS = [
   'expenses.reject',
   'expenses.create.own',
   'expenses.create.forWorker',
+  'expenses.delete',
 
   'categories.view',
   'categories.create',
@@ -181,12 +182,24 @@ Category.schema.index({ parentId: 1, name: 1 }, { unique: true });
 
 // Fund Model
 export const Fund = model('Fund', new Schema({
+  // Optional: retained for compatibility with old worker allocations
   workerId: {
-    ...ref('User'),
+    ...ref('User', false),
     index: true,
   },
 
-  siteId: ref('Site', false),
+  // Site receiving the funds
+  siteId: {
+    ...ref('Site', false),
+    index: true,
+  },
+
+  // Person who actually provided the money
+  contributorName: {
+    type: String,
+    trim: true,
+    default: '',
+  },
 
   amountPaise: paise,
 
@@ -196,11 +209,18 @@ export const Fund = model('Fund', new Schema({
     required: true,
   },
 
+  paymentMode: {
+    type: String,
+    enum: ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'],
+    default: 'CASH',
+  },
+
   notes: {
     type: String,
     default: '',
   },
 
+  // Admin who entered the transaction
   createdBy: ref('User'),
 
 }, {

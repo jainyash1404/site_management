@@ -48,13 +48,26 @@ const pid = (x: any) => String(x?._id ?? x ?? '');
 
 export const fundOut = (f: any) => ({
   id: String(f._id),
-  workerId: pid(f.workerId),
+
+  workerId: f.workerId ? pid(f.workerId) : undefined,
   workerName: f.workerId?.name,
+
   siteId: f.siteId ? pid(f.siteId) : undefined,
   siteName: f.siteId?.name,
+
+  contributorName: f.contributorName || '',
+
   amount: f.amountPaise / 100,
+
   type: f.type,
-  notes: f.notes,
+
+  paymentMode: f.paymentMode || 'CASH',
+
+  notes: f.notes || '',
+
+  createdBy: f.createdBy ? pid(f.createdBy) : undefined,
+  createdByName: f.createdBy?.name,
+
   createdAt: f.createdAt,
 });
 

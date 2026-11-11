@@ -29,15 +29,32 @@ const zero = (): Stats => ({
 });
 
 export async function workerStats(
-  ids?: string[]
+  ids?: string[],
+  siteId?: string,
 ): Promise<Map<string, Stats>> {
-  const match = ids
-    ? { workerId: { $in: ids.map(oid) } }
-    : {};
+
+  const fundMatch: Record<string, any> = {};
+  const expenseMatch: Record<string, any> = {};
+
+  if (ids) {
+    const workerIds = ids.map(oid);
+
+    fundMatch.workerId = { $in: workerIds };
+    expenseMatch.workerId = { $in: workerIds };
+  }
+
+  if (siteId) {
+    const selectedSiteId = oid(siteId);
+
+    fundMatch.siteId = selectedSiteId;
+    expenseMatch.siteId = selectedSiteId;
+  }
 
   const [funds, expenses] = await Promise.all([
+
+    // WORKER FUNDS
     Fund.aggregate([
-      { $match: match },
+      { $match: fundMatch },
       {
         $group: {
           _id: '$workerId',
@@ -46,8 +63,9 @@ export async function workerStats(
       },
     ]),
 
+    // WORKER EXPENSES
     Expense.aggregate([
-      { $match: match },
+      { $match: expenseMatch },
       {
         $group: {
           _id: {
@@ -59,6 +77,7 @@ export async function workerStats(
         },
       },
     ]),
+
   ]);
 
   const statsMap = new Map<string, Stats>();
@@ -72,18 +91,22 @@ export async function workerStats(
   };
 
   for (const fund of funds) {
+    if (!fund._id) continue;
+
     getStats(String(fund._id)).totalAllocated =
       fund.total / 100;
   }
 
   for (const expense of expenses) {
     const workerId = String(expense._id.workerId);
+
     const stats = getStats(workerId);
 
     const amount = expense.total / 100;
     const count = expense.count;
 
     switch (expense._id.status) {
+
       case 'APPROVED':
         stats.approvedAmount = amount;
         stats.approvedCount = count;

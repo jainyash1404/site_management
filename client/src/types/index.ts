@@ -23,6 +23,7 @@ export type AdminPermission =
   | 'expenses.view'
   | 'expenses.approve'
   | 'expenses.reject'
+  | 'expenses.delete'
   | 'expenses.create.own'
 |   'expenses.create.forWorker'
   | 'categories.view'
@@ -47,6 +48,13 @@ export interface Worker extends AuthUser {
   pendingApproval?: boolean;
   resetRequested?: boolean;
   assignedSites?: string[];
+
+  totalAllocated?: number;
+  approvedAmount?: number;
+  recordedAmount?: number;
+  pendingAmount?: number;
+  rejectedAmount?: number;
+  availableBalance?: number;
 }
 
 export interface Admin extends AuthUser {
@@ -76,13 +84,31 @@ export interface ExpenseCategory {
 
 export interface Fund {
   id: string;
-  workerId: string;
+
+  workerId?: string;
   workerName?: string;
+
   siteId?: string;
   siteName?: string;
+
+  contributorName?: string;
+
   amount: number;
+
   type: 'INITIAL' | 'ADDITIONAL';
-  notes?: string;
+
+  paymentMode?:
+    | 'CASH'
+    | 'UPI'
+    | 'BANK_TRANSFER'
+    | 'CHEQUE'
+    | 'OTHER';
+
+  notes: string;
+
+  createdBy?: string;
+  createdByName?: string;
+
   createdAt: string;
 }
 

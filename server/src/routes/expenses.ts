@@ -52,6 +52,8 @@ const populate = <
 const str = (v: unknown) =>
   typeof v === 'string' && v ? v : undefined;
 
+const currentUserId = (req: any) => me(req).id;
+
 // ==========================================
 // INDIA CURRENT DATE
 // ==========================================
@@ -98,16 +100,27 @@ r.get(
       f.siteId = idParam(q.siteId);
     }
 
+    // NESTED CATEGORY PATH FILTER
+
     if (str(q.category)) {
-      f.category = str(q.category);
+      const categorySearch = str(q.category)!.trim();
+
+      f.category = {
+        $regex: esc(categorySearch),
+        $options: 'i',
+      };
     }
 
+    // LEGACY SUBCATEGORY FILTER
+
     if (str(q.subcategory)) {
-      f.subcategory = str(q.subcategory);
+      f.subcategory = {
+        $regex: esc(str(q.subcategory)!),
+        $options: 'i',
+      };
     }
 
     // FILTER BY ACTUAL EXPENSE DATE
-    // Old records fallback to createdAt
 
     if (str(q.from) || str(q.to)) {
       const dateConditions: any[] = [];
@@ -177,7 +190,7 @@ r.get(
     }
 
     const limit = Math.min(
-      Number(q.limit) || 500,
+      Math.max(Number(q.limit) || 500, 1),
       500,
     );
 
@@ -189,6 +202,9 @@ r.get(
 
     const agg = await Expense.aggregate([
       {
+        $match: f,
+      },
+      { 
         $group: {
           _id: '$status',
           t: { $sum: '$amountPaise' },
@@ -257,6 +273,60 @@ r.get(
     });
   },
 );
+
+// ==========================================
+// VALIDATE NESTED CATEGORY PATH
+// ==========================================
+
+async function validateCategoryPath(
+  categoryPath: string,
+): Promise<string> {
+  const parts = categoryPath
+    .split('/')
+    .map(part => part.trim())
+    .filter(Boolean);
+
+  if (!parts.length) {
+    throw new HttpError(
+      400,
+      'Select a valid category',
+    );
+  }
+
+  if (parts.length > 50) {
+    throw new HttpError(
+      400,
+      'Category hierarchy is too deep',
+    );
+  }
+
+  let parentId: any = null;
+
+  const resolvedNames: string[] = [];
+
+  for (const categoryName of parts) {
+    const categoryDoc = await Category.findOne({
+      name: categoryName,
+      parentId,
+      isActive: true,
+    }).collation({
+      locale: 'en',
+      strength: 2,
+    });
+
+    if (!categoryDoc) {
+      throw new HttpError(
+        400,
+        `Invalid or inactive category: ${categoryName}`,
+      );
+    }
+
+    resolvedNames.push(categoryDoc.name);
+    parentId = categoryDoc._id;
+  }
+
+  return resolvedNames.join(' / ');
+}
 
 // ==========================================
 // SUBMIT EXPENSE - ADMIN / WORKER
@@ -347,7 +417,6 @@ r.post(
       Date.UTC(year, month - 1, day),
     );
 
-    // Reject invalid calendar dates
     if (
       expenseDate.toISOString().slice(0, 10) !==
       selectedDate
@@ -358,7 +427,7 @@ r.post(
       );
     }
 
-    // Reject future dates
+    // REJECT FUTURE DATES
 
     if (selectedDate > todayIST()) {
       throw new HttpError(
@@ -456,67 +525,10 @@ r.post(
       }
     }
 
-    // VALIDATE CATEGORY
+    // VALIDATE COMPLETE CATEGORY HIERARCHY
 
-// ==========================================
-// VALIDATE UNLIMITED CATEGORY HIERARCHY
-// ==========================================
-
-// Supports:
-// CIVIL
-// CIVIL / Civil Labour
-// CIVIL / Civil Labour / Mason
-// CIVIL / Civil Labour / Mason / Daily Wages
-
-const categoryParts = b.category
-  .split('/')
-  .map(part => part.trim())
-  .filter(Boolean);
-
-// Support legacy subcategory field if supplied
-const subcategoryParts = b.subcategory
-  ? b.subcategory
-      .split('/')
-      .map(part => part.trim())
-      .filter(Boolean)
-  : [];
-
-const categoryPathParts = [
-  ...categoryParts,
-  ...subcategoryParts,
-];
-
-if (!categoryPathParts.length) {
-  throw new HttpError(400, 'Select a valid category');
-}
-
-let parentId: any = null;
-
-const resolvedNames: string[] = [];
-
-for (const categoryName of categoryPathParts) {
-  const categoryDoc = await Category.findOne({
-    name: categoryName,
-    parentId,
-    isActive: true,
-  }).collation({
-    locale: 'en',
-    strength: 2,
-  });
-
-  if (!categoryDoc) {
-    throw new HttpError(
-      400,
-      `Invalid or inactive category: ${categoryName}`,
-    );
-  }
-
-  resolvedNames.push(categoryDoc.name);
-  parentId = categoryDoc._id;
-}
-
-// Save the complete hierarchy path
-const savedCategoryPath = resolvedNames.join(' / ');
+    const savedCategoryPath =
+      await validateCategoryPath(b.category);
 
     // RECEIPTS
 
@@ -724,8 +736,54 @@ r.patch(
   },
 );
 
-function currentUserId(req: any) {
-  return me(req).id;
-}
+// ==========================================
+// ADMIN - DELETE EXPENSE
+// ==========================================
+
+r.delete(
+  '/:id',
+  role('ADMIN'),
+  requirePermission('expenses.delete'),
+  async (req, res) => {
+    const id = idParam(req.params.id);
+
+    // FIND AND DELETE EXPENSE
+
+    const expense = await Expense.findOneAndDelete({
+      _id: id,
+    });
+
+    if (!expense) {
+      throw new HttpError(
+        404,
+        'Expense not found',
+      );
+    }
+
+    // AUDIT LOG
+
+    audit(
+      me(req).id,
+      'EXPENSE_DELETED',
+      'Expense',
+      expense.id,
+      {
+        workerId: String(expense.workerId),
+        siteId: String(expense.siteId),
+        amountPaise: expense.amountPaise,
+        category: expense.category,
+        subcategory: expense.subcategory ?? '',
+        status: expense.status,
+        expenseDate: expense.expenseDate,
+        receiptCount: expense.receiptKeys?.length ?? 0,
+      },
+    );
+
+    res.json({
+      message: 'Expense deleted successfully',
+      id: expense.id,
+    });
+  },
+);
 
 export default r;

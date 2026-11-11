@@ -22,6 +22,7 @@ import { useApi } from '../hooks/useApi';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import type { Site } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 type Filter = 'all' | 'active' | 'inactive' | 'completed';
 
@@ -58,6 +59,7 @@ export default function SitesPage() {
   );
 
   const sites = data?.items ?? [];
+  const navigate = useNavigate();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -598,9 +600,13 @@ export default function SitesPage() {
                           </div>
 
                           <div>
-                            <p className="font-semibold text-slate-800">
+                            <button
+                              onClick={() => navigate(`/admin/sites/${site.id}`)}
+                              className="text-left font-semibold text-slate-800 transition hover:text-blue-600 hover:underline"
+                              title="View site details"
+                            >
                               {site.name}
-                            </p>
+                            </button>
 
                             <p className="mt-1 text-xs text-slate-400">
                               ID: {site.id.slice(-6).toUpperCase()}
@@ -715,9 +721,12 @@ export default function SitesPage() {
                   <div className="flex items-start justify-between gap-3">
 
                     <div>
-                      <h3 className="font-semibold text-slate-900">
+                     <button
+                        onClick={() => navigate(`/admin/sites/${site.id}`)}
+                        className="text-left font-semibold text-slate-900 transition hover:text-blue-600 hover:underline"
+                      >
                         {site.name}
-                      </h3>
+                      </button>
 
                       <p className="mt-1 text-sm text-slate-500">
                         {site.address || 'Address not added'}

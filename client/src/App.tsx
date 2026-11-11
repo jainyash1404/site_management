@@ -15,7 +15,7 @@ import type {
 
 import AdminLayout from './layouts/AdminLayout';
 import WorkerLayout from './layouts/WorkerLayout';
-
+import SiteDetailsPage from './pages/SiteDetailsPage';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import WorkersPage from './pages/WorkersPage';
@@ -198,6 +198,11 @@ export default function App() {
             <Route
               path="sites"
               element={<SitesPage />}
+            />
+
+            <Route
+              path="sites/:id"
+              element={<SiteDetailsPage />}
             />
           </Route>
 

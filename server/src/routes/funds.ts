@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { Fund, Site, User, audit, oid } from '../models.js';
+import {
+  Fund,
+  Site,
+  User,
+  audit,
+} from '../models.js';
 
 import {
   HttpError,
@@ -19,6 +24,10 @@ const r = Router();
 
 r.use(auth);
 
+// ==========================================
+// MONEY VALIDATION
+// ==========================================
+
 export const money = z.coerce
   .number()
   .positive('Amount must be greater than 0')
@@ -29,116 +38,304 @@ export const money = z.coerce
   )
   .transform(n => Math.round(n * 100));
 
-// GET FUNDS
-r.get('/', async (req, res, next) => {
-  const u = me(req);
+const paymentModeSchema = z.enum([
+  'CASH',
+  'UPI',
+  'BANK_TRANSFER',
+  'CHEQUE',
+  'OTHER',
+]);
 
-  // Workers retain their existing access.
-  if (u.role === 'ADMIN') {
-    return requirePermission('funds.view')(req, res, next);
-  }
+const typeSchema = z.enum([
+  'INITIAL',
+  'ADDITIONAL',
+]);
 
-  next();
-}, async (req, res) => {
-  const u = me(req);
-  const q = req.query;
+// ==========================================
+// GET ALL FUNDS
+// ==========================================
 
-  const filter: Record<string, unknown> =
-    u.role === 'ADMIN'
-      ? (
-          typeof q.workerId === 'string' && q.workerId
-            ? { workerId: idParam(q.workerId) }
-            : {}
-        )
-      : { workerId: u.id };
+r.get(
+  '/',
+  role('ADMIN'),
+  requirePermission('funds.view'),
+  async (req, res) => {
+    const q = req.query;
 
-  const items = await Fund.find(filter)
-    .sort({ createdAt: -1 })
-    .populate('workerId', 'name')
-    .populate('siteId', 'name')
-    .lean();
+    const filter: Record<string, unknown> = {};
 
-  const [t] = await Fund.aggregate([
-    {
-      $match: filter.workerId
-        ? { workerId: oid(String(filter.workerId)) }
-        : {},
-    },
-    {
-      $group: {
-        _id: null,
-        t: { $sum: '$amountPaise' },
+    if (typeof q.siteId === 'string' && q.siteId) {
+      filter.siteId = idParam(q.siteId);
+    }
+
+    if (typeof q.workerId === 'string' && q.workerId) {
+      filter.workerId = idParam(q.workerId);
+    }
+
+    const items = await Fund.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('workerId', 'name phone')
+      .populate('siteId', 'name')
+      .populate('createdBy', 'name')
+      .lean();
+
+    const [summary] = await Fund.aggregate([
+      {
+        $match: filter,
       },
-    },
-  ]);
+      {
+        $group: {
+          _id: null,
+          totalAllocated: {
+            $sum: '$amountPaise',
+          },
+        },
+      },
+    ]);
 
-  res.json({
-    data: items.map(fundOut),
-    summary: {
-      totalAllocated: (t?.t ?? 0) / 100,
-    },
-  });
-});
+    res.json({
+      data: items.map(fundOut),
 
-// ALLOCATE FUNDS
+      summary: {
+        totalAllocated:
+          (summary?.totalAllocated ?? 0) / 100,
+      },
+    });
+  },
+);
+
+// ==========================================
+// ADD FUNDS
+// SUPPORTS BOTH WORKER AND SITE ALLOCATION
+// ==========================================
+
 r.post(
   '/',
   role('ADMIN'),
   requirePermission('funds.allocate'),
   async (req, res) => {
+
     const b = parse(
       z.object({
-        workerId: z.string(),
+        workerId: z.string().optional(),
+
         siteId: z.string().optional(),
+
+        contributorName: z.string()
+          .trim()
+          .max(100)
+          .optional(),
+
         amount: money,
-        type: z.enum(['INITIAL', 'ADDITIONAL']),
-        notes: z.string().trim().max(300).optional(),
+
+        type: typeSchema,
+
+        paymentMode: paymentModeSchema
+          .default('CASH'),
+
+        notes: z.string()
+          .trim()
+          .max(300)
+          .optional(),
       }),
       req.body,
     );
 
-    if (
-      !(await User.exists({
-        _id: idParam(b.workerId),
+    const isWorkerAllocation = Boolean(b.workerId);
+    const isSiteAllocation = Boolean(
+      b.siteId && b.contributorName?.trim(),
+    );
+
+    // Either worker allocation or site contribution is required.
+    if (!isWorkerAllocation && !isSiteAllocation) {
+      throw new HttpError(
+        400,
+        'Select a worker or provide a site and contributor name',
+      );
+    }
+
+    // ======================================
+    // VALIDATE WORKER
+    // ======================================
+
+    let worker: any = null;
+
+    if (isWorkerAllocation) {
+      worker = await User.findOne({
+        _id: idParam(b.workerId!),
         role: 'WORKER',
-        isActive: true,
-      }))
-    ) {
-      throw new HttpError(400, 'Select an active worker');
+      });
+
+      if (!worker) {
+        throw new HttpError(
+          404,
+          'Worker not found',
+        );
+      }
+
+      if (!worker.isActive) {
+        throw new HttpError(
+          400,
+          'Cannot allocate funds to an inactive worker',
+        );
+      }
     }
 
-    if (
-      b.siteId &&
-      !(await Site.exists({
-        _id: idParam(b.siteId),
-      }))
-    ) {
-      throw new HttpError(400, 'Site not found');
+    // ======================================
+    // VALIDATE SITE
+    // ======================================
+
+    let site: any = null;
+
+    if (b.siteId) {
+      site = await Site.findById(
+        idParam(b.siteId),
+      );
+
+      if (!site) {
+        throw new HttpError(
+          404,
+          'Site not found',
+        );
+      }
+
+      if (!site.isActive || site.isCompleted) {
+        throw new HttpError(
+          400,
+          'Funds cannot be added to an inactive or completed site',
+        );
+      }
     }
 
-    const f = await Fund.create({
-      workerId: b.workerId,
-      siteId: b.siteId || undefined,
+    // Site contribution must have a contributor name.
+    if (b.siteId && !isWorkerAllocation && !b.contributorName?.trim()) {
+      throw new HttpError(
+        400,
+        'Fund contributor name is required',
+      );
+    }
+
+    // ======================================
+    // CREATE FUND
+    // ======================================
+
+    const fund = await Fund.create({
+      workerId: worker?._id,
+
+      siteId: site?._id,
+
+      contributorName: b.contributorName?.trim() ?? '',
+
       amountPaise: b.amount,
+
       type: b.type,
+
+      paymentMode: b.paymentMode,
+
       notes: b.notes ?? '',
+
       createdBy: me(req).id,
     });
 
+    // ======================================
+    // AUDIT LOG
+    // ======================================
+
     audit(
       me(req).id,
-      'FUND_ALLOCATED',
+      isWorkerAllocation
+        ? 'WORKER_FUND_ALLOCATED'
+        : 'SITE_FUND_ADDED',
       'Fund',
-      f.id,
+      String(fund._id),
       {
-        workerId: b.workerId,
+        workerId: worker
+          ? String(worker._id)
+          : undefined,
+
+        workerName: worker?.name,
+
+        siteId: site
+          ? String(site._id)
+          : undefined,
+
+        siteName: site?.name,
+
+        contributorName: b.contributorName,
+
         amountPaise: b.amount,
+
         type: b.type,
+
+        paymentMode: b.paymentMode,
       },
     );
 
+    // ======================================
+    // RETURN POPULATED FUND
+    // ======================================
+
+    const populatedFund = await Fund.findById(fund._id)
+      .populate('workerId', 'name phone')
+      .populate('siteId', 'name')
+      .populate('createdBy', 'name')
+      .lean();
+
     res.status(201).json({
-      data: fundOut(f.toObject()),
+      data: fundOut(populatedFund),
+    });
+  },
+);
+
+// ==========================================
+// DELETE FUND
+// ==========================================
+
+r.delete(
+  '/:id',
+  role('ADMIN'),
+  requirePermission('funds.allocate'),
+  async (req, res) => {
+    const id = idParam(req.params.id);
+
+    const fund = await Fund.findOneAndDelete({
+      _id: id,
+    });
+
+    if (!fund) {
+      throw new HttpError(
+        404,
+        'Fund record not found',
+      );
+    }
+
+    audit(
+      me(req).id,
+      'FUND_DELETED',
+      'Fund',
+      String(fund._id),
+      {
+        workerId: fund.workerId
+          ? String(fund.workerId)
+          : undefined,
+
+        siteId: fund.siteId
+          ? String(fund.siteId)
+          : undefined,
+
+        contributorName: fund.contributorName,
+
+        amountPaise: fund.amountPaise,
+
+        type: fund.type,
+
+        paymentMode: fund.paymentMode,
+      },
+    );
+
+    res.json({
+      message: 'Fund deleted successfully',
+      id: String(fund._id),
     });
   },
 );

@@ -67,12 +67,16 @@ const safeWorkerStats = (stats: any, admin: any) => {
   }
 
   if (canViewExpenses) {
-    safeStats.approvedAmount = stats.approvedAmount;
-    safeStats.pendingAmount = stats.pendingAmount;
-    safeStats.rejectedAmount = stats.rejectedAmount;
-    safeStats.pendingCount = stats.pendingCount;
-    safeStats.rejectedCount = stats.rejectedCount;
-  }
+  safeStats.approvedAmount = stats.approvedAmount;
+  safeStats.recordedAmount = stats.recordedAmount;
+  safeStats.pendingAmount = stats.pendingAmount;
+  safeStats.rejectedAmount = stats.rejectedAmount;
+
+  safeStats.pendingCount = stats.pendingCount;
+  safeStats.rejectedCount = stats.rejectedCount;
+  safeStats.approvedCount = stats.approvedCount;
+  safeStats.recordedCount = stats.recordedCount;
+}
 
   if (canViewFunds && canViewExpenses) {
     safeStats.availableBalance = stats.availableBalance;
@@ -90,9 +94,15 @@ r.get(
       role: 'WORKER',
     }).sort({ name: 1 }).lean();
 
-    const st = await workerStats(
-      ws.map(w => String(w._id)),
-    );
+    const siteId =
+  typeof req.query.siteId === 'string' && req.query.siteId
+    ? idParam(req.query.siteId)
+    : undefined;
+
+const st = await workerStats(
+  ws.map(w => String(w._id)),
+  siteId,
+);
 
     const admin = me(req);
 

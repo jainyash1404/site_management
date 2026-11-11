@@ -71,6 +71,20 @@ r.get(
   }
 );
 
+// GET SINGLE SITE
+r.get(
+  '/:id',
+  role('ADMIN'),
+  requirePermission('sites.view'),
+  async (req, res) => {
+    const site = await find(req.params.id);
+
+    res.json({
+      data: siteOut(site),
+    });
+  }
+);
+
 // CREATE SITE
 r.post(
   '/',
